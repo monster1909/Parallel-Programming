@@ -1,0 +1,21 @@
+NVCC = /usr/local/cuda-12.6/bin/nvcc
+CXXFLAGS = -std=c++17
+
+SRCS = src/main_gpu.cu \
+       src/autoencoder.cu \
+       src/utils/cuda_utils.cpp \
+       src/utils/gpu_memory.cu \
+       src/kernels/conv2d.cu \
+       src/kernels/maxpool.cu \
+       src/kernels/relu.cu \
+       src/kernels/upsample.cu
+
+INC = -I Include
+
+run_gpu:
+	$(NVCC) $(CXXFLAGS) $(SRCS) $(INC) -o run_gpu
+
+clean:
+	rm -f run_gpu
+
+.PHONY: clean
