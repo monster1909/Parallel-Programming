@@ -121,7 +121,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, bool verb
 
     gpu_memcpy_h2d(d_input, host_input, C * H * W * sizeof(float));
     
-    // 1. Conv1: Input(3) -> 256 | Size: 32x32
+    // 1. Conv1: Input(3) -> 64 | Size: 32x32
     if (verbose) timer.Start();
     forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, C1);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_conv1 = timer.Elapsed(); }
@@ -136,7 +136,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, bool verb
     maxpool<<<grid_pool1, block>>>(d_conv1_out, d_pool1_out, H, W, C1);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_pool1 = timer.Elapsed(); }
 
-    // 3. Conv2: 256 -> 128 | Size: 16x16
+    // 3. Conv2: 64 -> 32 | Size: 16x16
     if (verbose) timer.Start();
     forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H2, W2, C1, C2);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_conv2 = timer.Elapsed(); }
@@ -154,7 +154,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, bool verb
 
     // ---------------- DECODER ----------------
 
-    // 5. Decoder Conv1: 128 -> 128 | Size: 8x8
+    // 5. Decoder Conv1: 32 -> 32 | Size: 8x8
     if (verbose) timer.Start();
     forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H4, W4, C2, C2);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_dec1 = timer.Elapsed(); }
@@ -169,7 +169,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, bool verb
     upsample<<<grid_up1, block>>>(d_dec1_out, d_ups1_out, H4, W4, C2);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_up1 = timer.Elapsed(); }
 
-    // 7. Decoder Conv2: 128 -> 256 | Size: 16x16
+    // 7. Decoder Conv2: 32 -> 64 | Size: 16x16
     if (verbose) timer.Start();
     forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H2, W2, C2, C1);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_dec2 = timer.Elapsed(); }
@@ -184,7 +184,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, bool verb
     upsample<<<grid_up2, block>>>(d_dec2_out, d_ups2_out, H2, W2, C1);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_up2 = timer.Elapsed(); }
 
-    // 9. Final Conv: 256 -> 3 | Size: 32x32
+    // 9. Final Conv: 64 -> 3 | Size: 32x32
     if (verbose) timer.Start();
     forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, C1, C);
     if (verbose) { cudaDeviceSynchronize(); timer.Stop(); t_final = timer.Elapsed(); }
