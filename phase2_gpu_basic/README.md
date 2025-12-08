@@ -136,10 +136,12 @@ phase2_gpu_basic/
 - 9: truck
 
 #### 1. Biên dịch chương trình
+make -f MAKEFILE clean
 
 ```bash
 make -f MAKEFILE run_gpu
 ```
+
 
 Hoặc với lệnh nvcc trực tiếp:
 

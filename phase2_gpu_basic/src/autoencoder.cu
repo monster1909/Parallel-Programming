@@ -71,15 +71,17 @@ Autoencoder::Autoencoder(int H_, int W_, int C_)
 // ==============================
 //        FORWARD PASS
 // ==============================
-void Autoencoder::forward(const float *host_input, float *host_output)
+void Autoencoder::forward(const float *host_input, float *host_output, bool verbose)
 {
-    cout << "\n===== FORWARD PASS START =====\n";
+    if (verbose) {
+        cout << "\n===== FORWARD PASS START =====\n";
 
-    // Show first 10 input pixels
-    cout << "[INPUT] First 10 pixels: ";
-    for (int i = 0; i < 10; i++)
-        cout << host_input[i] << " ";
-    cout << "\n\n";
+        // Show first 10 input pixels
+        cout << "[INPUT] First 10 pixels: ";
+        for (int i = 0; i < 10; i++)
+            cout << host_input[i] << " ";
+        cout << "\n\n";
+    }
 
     // Copy input (not counted in timing)
     gpu_memcpy_h2d(d_input, host_input, C * H * W * sizeof(float));
@@ -175,24 +177,26 @@ void Autoencoder::forward(const float *host_input, float *host_output)
         t_conv2 + t_relu2 + t_pool2 +
         t_up1 + t_dec1 + t_up2 + t_final;
 
-    auto pct = [&](float t)
-    { return (t / total) * 100.0f; };
+    if (verbose) {
+        auto pct = [&](float t)
+        { return (t / total) * 100.0f; };
 
-    cout << "\n===== TIME BREAKDOWN =====\n";
-    cout << "Conv1:      " << t_conv1 << " ms  (" << pct(t_conv1) << "%)\n";
-    cout << "ReLU1:      " << t_relu1 << " ms  (" << pct(t_relu1) << "%)\n";
-    cout << "MaxPool1:   " << t_pool1 << " ms  (" << pct(t_pool1) << "%)\n";
-    cout << "Conv2:      " << t_conv2 << " ms  (" << pct(t_conv2) << "%)\n";
-    cout << "ReLU2:      " << t_relu2 << " ms  (" << pct(t_relu2) << "%)\n";
-    cout << "MaxPool2:   " << t_pool2 << " ms  (" << pct(t_pool2) << "%)\n";
-    cout << "Upsample1:  " << t_up1 << " ms  (" << pct(t_up1) << "%)\n";
-    cout << "DecodeConv: " << t_dec1 << " ms  (" << pct(t_dec1) << "%)\n";
-    cout << "Upsample2:  " << t_up2 << " ms  (" << pct(t_up2) << "%)\n";
-    cout << "FinalConv:  " << t_final << " ms  (" << pct(t_final) << "%)\n";
+        cout << "\n===== TIME BREAKDOWN =====\n";
+        cout << "Conv1:      " << t_conv1 << " ms  (" << pct(t_conv1) << "%)\n";
+        cout << "ReLU1:      " << t_relu1 << " ms  (" << pct(t_relu1) << "%)\n";
+        cout << "MaxPool1:   " << t_pool1 << " ms  (" << pct(t_pool1) << "%)\n";
+        cout << "Conv2:      " << t_conv2 << " ms  (" << pct(t_conv2) << "%)\n";
+        cout << "ReLU2:      " << t_relu2 << " ms  (" << pct(t_relu2) << "%)\n";
+        cout << "MaxPool2:   " << t_pool2 << " ms  (" << pct(t_pool2) << "%)\n";
+        cout << "Upsample1:  " << t_up1 << " ms  (" << pct(t_up1) << "%)\n";
+        cout << "DecodeConv: " << t_dec1 << " ms  (" << pct(t_dec1) << "%)\n";
+        cout << "Upsample2:  " << t_up2 << " ms  (" << pct(t_up2) << "%)\n";
+        cout << "FinalConv:  " << t_final << " ms  (" << pct(t_final) << "%)\n";
 
-    cout << "----------------------------------\n";
-    cout << "TOTAL FORWARD TIME: " << total << " ms\n";
-    cout << "==================================\n";
+        cout << "----------------------------------\n";
+        cout << "TOTAL FORWARD TIME: " << total << " ms\n";
+        cout << "==================================\n";
+    }
 }
 
 // ==============================

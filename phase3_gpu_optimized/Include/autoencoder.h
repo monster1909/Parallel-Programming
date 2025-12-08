@@ -10,7 +10,7 @@ public:
     ~Autoencoder();
 
     void init_weights();
-    void forward(const float* host_input, float* host_output);
+    void forward(const float* host_input, float* host_output, bool verbose = true);
 
     // Helper static
     static void device_synchronize();

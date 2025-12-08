@@ -9,7 +9,7 @@ public:
     ~Autoencoder();
 
     // Hàm forward giờ nhận thêm tham số batch_size thực tế
-    void forward(const float* host_input, float* host_output, int batch_size = 64);
+    void forward(const float* host_input, float* host_output, int batch_size = 64, bool verbose = true);
     static void device_synchronize();
 
 public: 

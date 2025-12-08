@@ -102,14 +102,54 @@ int main()
     // ===== CREATE AUTOENCODER AND RUN FORWARD =====
     Autoencoder model(H, W, C);
 
-    cout << "\n[INFO] Running GPU forward pass...\n";
-    model.forward(input.data(), output.data());
+    // Warmup
+    model.forward(input.data(), output.data(), false);
 
-    // ===== PRINT SAMPLE RESULTS =====
-    cout << "\n===== OUTPUT SAMPLE VALUES (first 10 pixels) =====\n";
+    // ===== BENCHMARK: Xử lý 60k ảnh =====
+    const int NUM_IMAGES = 60000;
+    cout << "\n[INFO] Benchmarking " << NUM_IMAGES << " images...\n";
+    cout << "[INFO] Running GPU forward pass (verbose disabled for benchmark)...\n";
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
+    for (int i = 0; i < NUM_IMAGES; i++) {
+        model.forward(input.data(), output.data(), false);
+    }
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+
+    float total_ms = 0;
+    cudaEventElapsedTime(&total_ms, start, stop);
+
+    float avg_time_per_img = total_ms / NUM_IMAGES;
+    float total_time_seconds = total_ms / 1000.0f;
+
+    cout << "\n========================================\n";
+    cout << "BENCHMARK RESULTS (60,000 images)\n";
+    cout << "========================================\n";
+    cout << "Total Time:           " << total_ms << " ms\n";
+    cout << "Total Time:           " << total_time_seconds << " seconds\n";
+    cout << "Avg Time per Image:   " << avg_time_per_img << " ms\n";
+    cout << "Target Requirement:    < 20.0 seconds\n";
+    
+    if (total_time_seconds < 20.0f) {
+        cout << ">>> RESULT: PASSED (Fast enough) <<<\n";
+    } else {
+        cout << ">>> RESULT: FAILED (Too slow) <<<\n";
+    }
+    cout << "========================================\n";
+
+    // ===== PRINT SAMPLE RESULTS (from last image) =====
+    cout << "\n===== OUTPUT SAMPLE VALUES (first 10 pixels from last image) =====\n";
     for (int i = 0; i < 10; i++)
         cout << output[i] << " ";
     cout << "\n";
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
 
     cout << "\n===== DONE =====\n";
     return 0;

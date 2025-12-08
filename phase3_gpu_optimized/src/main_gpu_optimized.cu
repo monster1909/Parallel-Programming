@@ -7,13 +7,11 @@
 #include "autoencoder.h"
 #include "utils/cuda_utils.h"
 
-// ... (Giữ nguyên hàm loadOneCIFAR10Image cũ) ...
-bool loadOneCIFAR10Image(const std::string& filepath, std::vector<float>& output) {
-    // ... (Giữ nguyên code load ảnh cũ của bạn ở đây) ...
-    // Nếu bạn lười copy lại, tôi có thể gửi full file
-    std::ifstream file(filepath, std::ios::binary);
+using namespace std;
+bool loadOneCIFAR10Image(const string& filepath, vector<float>& output) {
+    ifstream file(filepath, ios::binary);
     if (!file.is_open()) return false;
-    std::vector<unsigned char> buffer(3073);
+    vector<unsigned char> buffer(3073);
     file.read(reinterpret_cast<char*>(buffer.data()), 3073);
     file.close();
     output.resize(3 * 32 * 32);
@@ -28,39 +26,32 @@ bool loadOneCIFAR10Image(const std::string& filepath, std::vector<float>& output
 }
 
 int main() {
-    std::cout << "========== PHASE 3: BATCH PERFORMANCE TEST ==========\n";
+    cout << "========== PHASE 3: BATCH PERFORMANCE TEST ==========\n";
 
-    // 1. Cấu hình Batch Size (Bí quyết tăng tốc)
-    int BATCH_SIZE = 64; // Xử lý 64 ảnh cùng lúc
     int H = 32, W = 32, C = 3;
-    
-    // 2. Load 1 ảnh mẫu & Nhân bản lên thành 1 Batch
-    std::vector<float> single_img;
-    std::string dataPath = "../data/cifar-10-batches-bin/data_batch_1.bin";
+    vector<float> single_img;
+    string dataPath = "../data/cifar-10-batches-bin/data_batch_1.bin";
     
     if (!loadOneCIFAR10Image(dataPath, single_img)) {
-        single_img.resize(C*H*W, 0.5f); // Fake data nếu lỗi file
+        single_img.resize(C*H*W, 0.5f);
     }
-
-    // Tạo batch input (Input phẳng: Batch * C * H * W)
-    // Lưu ý: Code Autoencoder hiện tại của bạn đang thiết kế cho Single Image (Forward nhận vào pointer).
-    // Để chạy Batch thực sự cần sửa kernel Im2Col. 
-    // TUY NHIÊN, để báo cáo, ta có thể đo tốc độ xử lý song song bằng cách loop nhanh.
-    // Hoặc cách tốt nhất: Giả sử chạy 1000 lần liên tục (pipeline) để tính throughput.
     
     Autoencoder model(H, W, C);
-    std::vector<float> h_output(C*H*W);
+    vector<float> h_output(C*H*W);
 
-    std::cout << "[INFO] Measuring throughput for 1000 images...\n";
+    model.forward(single_img.data(), h_output.data(), false);
+
+    const int NUM_IMAGES = 60000;
+    cout << "[INFO] Benchmarking " << NUM_IMAGES << " images...\n";
+    cout << "[INFO] Running GPU forward pass (verbose disabled for benchmark)...\n";
 
     cudaEvent_t start, stop;
-    cudaEventCreate(&start); cudaEventCreate(&stop);
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
     cudaEventRecord(start);
-    // Giả lập xử lý 1000 ảnh liên tục (Stream processing)
-    int NUM_IMAGES = 1000;
     for(int i=0; i<NUM_IMAGES; i++) {
-        model.forward(single_img.data(), h_output.data());
+        model.forward(single_img.data(), h_output.data(), false);
     }
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
@@ -69,19 +60,24 @@ int main() {
     cudaEventElapsedTime(&total_ms, start, stop);
     
     float avg_time_per_img = total_ms / NUM_IMAGES;
-    float projected_60k_time = (avg_time_per_img * 60000.0f) / 1000.0f; // Đổi ra giây
+    float total_time_seconds = total_ms / 1000.0f;
 
-    std::cout << "------------------------------------------------\n";
-    std::cout << "Total Time (1000 imgs): " << total_ms << " ms\n";
-    std::cout << "Avg Time per Image:     " << avg_time_per_img << " ms\n";
-    std::cout << "Projected 60k Time:     " << projected_60k_time << " seconds\n";
-    std::cout << "Target Requirement:     < 20.0 seconds\n";
+    cout << "\n========================================\n";
+    cout << "BENCHMARK RESULTS (60,000 images)\n";
+    cout << "========================================\n";
+    cout << "Total Time:           " << total_ms << " ms\n";
+    cout << "Total Time:           " << total_time_seconds << " seconds\n";
+    cout << "Avg Time per Image:   " << avg_time_per_img << " ms\n";
+    cout << "Target Requirement:   < 20.0 seconds\n";
     
-    if (projected_60k_time < 20.0f) 
-        std::cout << ">>> RESULT: PASSED (Fast enough) <<<\n";
-    else 
-        std::cout << ">>> RESULT: WARNING (Need Batch Optimization) <<<\n";
-        
-    std::cout << "------------------------------------------------\n";
+    if (total_time_seconds < 20.0f) {
+        cout << ">>> RESULT: PASSED (Fast enough) <<<\n";
+    } else {
+        cout << ">>> RESULT: FAILED (Too slow) <<<\n";
+    }
+    cout << "========================================\n";
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
     return 0;
 }
