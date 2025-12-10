@@ -10,8 +10,13 @@
 #endif
 
 // Activations Implementation
-AutoEncoder::Activations::Activations(): feat1(NULL), pool1(NULL), feat2(NULL), latent(NULL), feat3(NULL), up1(NULL), feat4(NULL), up2(NULL),
-               pool1_argmax(NULL), pool2_argmax(NULL), feat1_relu(NULL), feat2_relu(NULL), feat3_relu(NULL), feat4_relu(NULL) {}
+// Sửa lại thứ tự trong src/autoencoder.cpp
+AutoEncoder::Activations::Activations() : 
+    feat1(NULL), feat1_relu(NULL), pool1_argmax(NULL), pool1(NULL),
+    feat2(NULL), feat2_relu(NULL), pool2_argmax(NULL), latent(NULL),
+    feat3(NULL), feat3_relu(NULL), up1(NULL),
+    feat4(NULL), feat4_relu(NULL), up2(NULL) 
+{}
 
 void AutoEncoder::Activations::alloc(int N) {
     // Sizes
