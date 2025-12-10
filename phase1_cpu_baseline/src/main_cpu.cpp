@@ -55,6 +55,48 @@ vector<float> load_cifar_batches(const vector<string>& files, int &N_out) {
     return data;
 }
 
+// [MỚI] Hàm load dữ liệu trả về cả Label để dùng cho SVM
+void load_cifar_batches_with_labels(const vector<string>& files, 
+                                    vector<float>& data_out, 
+                                    vector<unsigned char>& labels_out, 
+                                    int &N_out) {
+    data_out.clear();
+    labels_out.clear();
+    
+    for (auto &fpath : files) {
+        ifstream fin(fpath, ios::binary);
+        if (!fin) { cerr<<"Cannot open "<<fpath<<endl; exit(1); }
+        
+        const int record_size = 1 + 3072; // 1 byte label + 3072 bytes pixel
+        vector<unsigned char> buf(record_size);
+        int count = 0;
+        
+        while (fin.read((char*)buf.data(), record_size)) {
+            // Lấy label (byte đầu tiên)
+            labels_out.push_back(buf[0]);
+            
+            // Lấy ảnh
+            int current_size = data_out.size();
+            data_out.resize(current_size + IMG_C*IMG_H*IMG_W);
+            int base = current_size;
+            
+            // CIFAR format: Label | R... | G... | B...
+            for (int c=0; c<IMG_C; ++c) {
+                for (int h=0; h<IMG_H; ++h) {
+                    for (int w=0; w<IMG_W; ++w) {
+                        int v = buf[1 + c*1024 + h*32 + w];
+                        data_out[base + (c*IMG_H + h) * IMG_W + w] = v / 255.0f;
+                    }
+                }
+            }
+            ++count;
+        }
+        cout << "Loaded " << count << " images with labels from " << fpath << "\n";
+    }
+    N_out = (int)labels_out.size();
+    cout << "Total labeled images: " << N_out << "\n";
+}
+
 int main(int argc, char** argv) {
     srand(1234);
 
@@ -141,6 +183,73 @@ int main(int argc, char** argv) {
         ae.forward_batch(img.data(), out_img, act, 1);
         act.free_all();
         save_ppm(out_img, ppm_out);
+    }
+   else if (mode == "extract") {
+        if (argc < 5) {
+            cerr << "Extract mode requires: extract weights.bin output.bin data_batch_1.bin ...\n";
+            return 1;
+        }
+
+        string weights_file = argv[2];
+        string output_file  = argv[3];
+
+        // 1. Load trained weights
+        ae.load_weights(weights_file);
+
+        // 2. Load Data & Labels
+        vector<string> data_files;
+        for (int i = 4; i < argc; ++i) data_files.push_back(argv[i]);
+
+        vector<float> dataset;
+        vector<unsigned char> labels;
+        int N;
+        load_cifar_batches_with_labels(data_files, dataset, labels, N);
+
+        // 3. Prepare Output File
+        // Format: [int TotalImages] [int FeatureDim] 
+        //         Loop N: [uint8 Label] [float FeatureVector[8192]]
+        FILE* fout = fopen(output_file.c_str(), "wb");
+        if (!fout) { cerr << "Cannot open output file " << output_file << "\n"; return 1; }
+
+        int feature_dim = F2 * (IMG_H/2/2) * (IMG_W/2/2); // 128 * 8 * 8 = 8192
+        
+        fwrite(&N, sizeof(int), 1, fout);
+        fwrite(&feature_dim, sizeof(int), 1, fout);
+
+        cout << "Extracting features to " << output_file << "...\n";
+        cout << "Dimension: " << feature_dim << "\n";
+
+        // Buffer for single feature vector
+        vector<float> latent_vec(feature_dim);
+        int img_size = IMG_C * IMG_H * IMG_W;
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        for (int i = 0; i < N; ++i) {
+            const float* img_ptr = dataset.data() + i * img_size;
+            
+            // Run Encoder
+            ae.extract_feature_single(img_ptr, latent_vec.data());
+
+            // Write Label
+            fwrite(&labels[i], sizeof(unsigned char), 1, fout);
+            
+            // Write Features
+            fwrite(latent_vec.data(), sizeof(float), feature_dim, fout);
+
+            if ((i+1) % 1000 == 0) {
+                cout << "Processed " << i+1 << "/" << N << " images\r" << flush;
+            }
+        }
+        cout << "\nDone.\n";
+        fclose(fout);
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end_time - start_time;
+        cout << "Extraction time: " << elapsed.count() << "s (" 
+             << (elapsed.count()/N)*1000 << " ms/image)\n";
+        
+        return 0;
     }
     return 0;
 }
