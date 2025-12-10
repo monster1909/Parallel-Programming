@@ -9,7 +9,7 @@ else
 endif
 CXXFLAGS = -std=c++17
 
-SRCS = src/main_gpu.cu \
+SRCS_MAIN = src/main_gpu.cu \
        src/autoencoder.cu \
        src/utils/cuda_utils.cpp \
        src/utils/gpu_memory.cu \
@@ -18,12 +18,28 @@ SRCS = src/main_gpu.cu \
        src/kernels/relu.cu \
        src/kernels/upsample.cu
 
+SRCS_TEST = src/main_gpu_test.cu \
+       src/autoencoder.cu \
+       src/utils/cuda_utils.cpp \
+       src/utils/gpu_memory.cu \
+       src/kernels/conv2d.cu \
+       src/kernels/maxpool.cu \
+       src/kernels/relu.cu \
+       src/kernels/upsample.cu
+
+TARGET_MAIN = run_gpu
+TARGET_TEST = test_gpu
 INC = -I Include
 
-run_gpu:
-	$(NVCC) $(CXXFLAGS) $(SRCS) $(INC) -o run_gpu
+all: $(TARGET_MAIN) $(TARGET_TEST)
+
+$(TARGET_MAIN): $(SRCS_MAIN)
+	$(NVCC) $(CXXFLAGS) $(INC) $(SRCS_MAIN) -o $(TARGET_MAIN)
+
+$(TARGET_TEST): $(SRCS_TEST)
+	$(NVCC) $(CXXFLAGS) $(INC) $(SRCS_TEST) -o $(TARGET_TEST)
 
 clean:
-	rm -f run_gpu
+	rm -f $(TARGET_MAIN) $(TARGET_TEST)
 
 .PHONY: clean

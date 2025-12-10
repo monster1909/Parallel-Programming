@@ -11,8 +11,18 @@ endif
 INC = -I./Include 
 CXXFLAGS = -O3 -std=c++17
 
-# 2. Danh sách file nguồn (CHỈ liệt kê file, KHÔNG viết lệnh nvcc ở đây)
-SRCS = src/main_gpu_optimized.cu \
+# 2. Danh sách file nguồn
+SRCS_MAIN = src/main_gpu_optimized.cu \
+       src/autoencoder.cu \
+       src/kernels/im2col.cu \
+       src/kernels/gemm.cu \
+       src/kernels/relu.cu \
+       src/kernels/maxpool.cu \
+       src/kernels/upsample.cu \
+       src/utils/cuda_utils.cpp \
+       src/utils/gpu_memory.cu
+
+SRCS_TEST = src/main_gpu_test.cu \
        src/autoencoder.cu \
        src/kernels/im2col.cu \
        src/kernels/gemm.cu \
@@ -23,16 +33,20 @@ SRCS = src/main_gpu_optimized.cu \
        src/utils/gpu_memory.cu
 
 # 3. Tên file chạy
-TARGET = run_phase3
+TARGET_MAIN = run_phase3
+TARGET_TEST = test_gpu
 
 # 4. Quy tắc biên dịch
-all: $(TARGET)
+all: $(TARGET_MAIN) $(TARGET_TEST)
 
-$(TARGET): $(SRCS)
-	$(NVCC) $(CXXFLAGS) $(INC) $(SRCS) -o $(TARGET)
+$(TARGET_MAIN): $(SRCS_MAIN)
+	$(NVCC) $(CXXFLAGS) $(INC) $(SRCS_MAIN) -o $(TARGET_MAIN)
+
+$(TARGET_TEST): $(SRCS_TEST)
+	$(NVCC) $(CXXFLAGS) $(INC) $(SRCS_TEST) -o $(TARGET_TEST)
 
 # 5. Dọn dẹp
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET_MAIN) $(TARGET_TEST)
 
 .PHONY: clean all
