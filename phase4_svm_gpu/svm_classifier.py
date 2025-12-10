@@ -74,6 +74,19 @@ def main():
     X_train, y_train = load_data(args.train_file)
     X_test, y_test = load_data(args.test_file)
 
+    # [FIX] Ép kiểu sang float64 và Chuẩn hóa
+    print("[PROCESSING] Ép kiểu float64 và chuẩn hóa dữ liệu...")
+    from sklearn.preprocessing import StandardScaler
+    
+    # Ép kiểu để tránh tràn số
+    X_train = X_train.astype(np.float64)
+    X_test = X_test.astype(np.float64)
+    
+    # Chuẩn hóa (BẮT BUỘC với SVM nhiều chiều)
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
     # 2. Khởi tạo và Train Model trên GPU
     print("-" * 40)
     print(f"[GPU TRAIN] Bắt đầu huấn luyện SVM (Kernel: {args.kernel}, C: {args.C})...")
