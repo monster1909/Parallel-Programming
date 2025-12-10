@@ -37,7 +37,7 @@ struct AutoEncoder {
     void init();
     void free_all();
 
-    void forward_batch(const float* input_batch, float* output_batch, Activations &act, int N);
+    void forward_batch(const float* input_batch, float* output_batch, Activations &act, int N, DetailedTimer* timer = nullptr);
     void backward_batch(const float* input_batch, const float* output_batch, const float* target_batch, Activations &act, int N);
     void sgd_update(float lr, int batch_size);
     
