@@ -79,8 +79,8 @@ def main():
     from sklearn.preprocessing import StandardScaler
     
     # Ép kiểu để tránh tràn số
-    X_train = X_train.astype(np.float64)
-    X_test = X_test.astype(np.float64)
+    X_train = X_train.astype(np.float32)
+    X_test = X_test.astype(np.float32)
     
     # Chuẩn hóa (BẮT BUỘC với SVM nhiều chiều)
     scaler = StandardScaler()
@@ -92,7 +92,7 @@ def main():
     print(f"[GPU TRAIN] Bắt đầu huấn luyện SVM (Kernel: {args.kernel}, C: {args.C})...")
     
     # cuML SVC có API tương tự Sklearn nhưng chạy trên GPU
-    clf = GPU_SVC(kernel=args.kernel, C=args.C, gamma='scale', verbose=True)
+    clf = GPU_SVC(kernel=args.kernel, C=args.C, gamma='scale', verbose=False)
     
     start_train = time.time()
     clf.fit(X_train, y_train)
