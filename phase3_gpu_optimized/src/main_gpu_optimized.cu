@@ -51,8 +51,15 @@ int main() {
 
     cudaEventRecord(start);
     for(int i=0; i<NUM_IMAGES; i++) {
+        // Show progress every 5000 images
+        if (i % 5000 == 0) {
+            float progress = (i * 100.0f) / NUM_IMAGES;
+            cout << "[PROGRESS] " << i << "/" << NUM_IMAGES 
+                 << " (" << progress << "%)    \r" << flush;
+        }
         model.forward(single_img.data(), h_output.data(), false);
     }
+    cout << "[PROGRESS] " << NUM_IMAGES << "/" << NUM_IMAGES << " (100.0%)    \n";
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
 

@@ -33,37 +33,44 @@ Autoencoder::Autoencoder(int H_, int W_, int C_)
     : H(H_), W(W_), C(C_),
       d_input(nullptr), d_conv1_out(nullptr), d_pool1_out(nullptr),
       d_conv2_out(nullptr), d_pool2_out(nullptr),
-      d_ups1_out(nullptr), d_decoder1_out(nullptr),
+      d_ups1_out(nullptr), d_dec1_out(nullptr), d_dec2_out(nullptr),
       d_ups2_out(nullptr), d_output(nullptr),
       d_w_conv1(nullptr), d_w_conv2(nullptr),
-      d_w_dec1(nullptr), d_w_dec2(nullptr)
+      d_w_dec1(nullptr), d_w_dec2(nullptr), d_w_final(nullptr)
 {
-    cout << "[INFO] Initializing GPU Autoencoder..." << endl;
+    cout << "[INFO] Initializing GPU Autoencoder (Phase 2 - Full Architecture)..." << endl;
 
-    w_conv1.resize(8 * C * 3 * 3, 0.01f);
-    w_conv2.resize(4 * 8 * 3 * 3, 0.01f);
-    w_dec1.resize(8 * 4 * 3 * 3, 0.01f);
-    w_dec2.resize(3 * 8 * 3 * 3, 0.01f);
+    // Weight initialization for 256/128 channel architecture
+    w_conv1.resize(256 * C * 3 * 3, 0.01f);      // Conv1: 3→256
+    w_conv2.resize(128 * 256 * 3 * 3, 0.01f);    // Conv2: 256→128
+    w_dec1.resize(128 * 128 * 3 * 3, 0.01f);     // Decoder1: 128→128
+    w_dec2.resize(256 * 128 * 3 * 3, 0.01f);     // Decoder2: 128→256
+    w_final.resize(3 * 256 * 3 * 3, 0.01f);      // Final: 256→3
 
+    // Allocate and copy weights to GPU
     d_w_conv1 = (float *)gpu_malloc(w_conv1.size() * sizeof(float));
     d_w_conv2 = (float *)gpu_malloc(w_conv2.size() * sizeof(float));
     d_w_dec1 = (float *)gpu_malloc(w_dec1.size() * sizeof(float));
     d_w_dec2 = (float *)gpu_malloc(w_dec2.size() * sizeof(float));
+    d_w_final = (float *)gpu_malloc(w_final.size() * sizeof(float));
 
     gpu_memcpy_h2d(d_w_conv1, w_conv1.data(), w_conv1.size() * sizeof(float));
     gpu_memcpy_h2d(d_w_conv2, w_conv2.data(), w_conv2.size() * sizeof(float));
     gpu_memcpy_h2d(d_w_dec1, w_dec1.data(), w_dec1.size() * sizeof(float));
     gpu_memcpy_h2d(d_w_dec2, w_dec2.data(), w_dec2.size() * sizeof(float));
+    gpu_memcpy_h2d(d_w_final, w_final.data(), w_final.size() * sizeof(float));
 
-    d_input = (float *)gpu_malloc(C * H * W * sizeof(float));
-    d_conv1_out = (float *)gpu_malloc(8 * H * W * sizeof(float));
-    d_pool1_out = (float *)gpu_malloc(8 * H / 2 * W / 2 * sizeof(float));
-    d_conv2_out = (float *)gpu_malloc(4 * H / 2 * W / 2 * sizeof(float));
-    d_pool2_out = (float *)gpu_malloc(4 * H / 4 * W / 4 * sizeof(float));
-    d_ups1_out = (float *)gpu_malloc(4 * H / 2 * W / 2 * sizeof(float));
-    d_decoder1_out = (float *)gpu_malloc(8 * H / 2 * W / 2 * sizeof(float));
-    d_ups2_out = (float *)gpu_malloc(8 * H * W * sizeof(float));
-    d_output = (float *)gpu_malloc(C * H * W * sizeof(float));
+    // Allocate feature map buffers (256/128 channels)
+    d_input = (float *)gpu_malloc(C * H * W * sizeof(float));                  // 3×32×32
+    d_conv1_out = (float *)gpu_malloc(256 * H * W * sizeof(float));            // 256×32×32
+    d_pool1_out = (float *)gpu_malloc(256 * H / 2 * W / 2 * sizeof(float));    // 256×16×16
+    d_conv2_out = (float *)gpu_malloc(128 * H / 2 * W / 2 * sizeof(float));    // 128×16×16
+    d_pool2_out = (float *)gpu_malloc(128 * H / 4 * W / 4 * sizeof(float));    // 128×8×8 
+    d_dec1_out = (float *)gpu_malloc(128 * H / 4 * W / 4 * sizeof(float));     // 128×8×8
+    d_ups1_out = (float *)gpu_malloc(128 * H / 2 * W / 2 * sizeof(float));     // 128×16×16
+    d_dec2_out = (float *)gpu_malloc(256 * H / 2 * W / 2 * sizeof(float));     // 256×16×16
+    d_ups2_out = (float *)gpu_malloc(256 * H * W * sizeof(float));             // 256×32×32
+    d_output = (float *)gpu_malloc(C * H * W * sizeof(float));                 // 3×32×32
 
     cout << "[INFO] GPU Autoencoder initialization done.\n";
 }
@@ -99,72 +106,84 @@ void Autoencoder::forward(const float *host_input, float *host_output, bool verb
 
     dim3 block(16, 16);
 
-    // ===== CONV 1 =====
+    // ===== ENCODER =====
+    
+    // ===== CONV 1: 3→256 =====
     timer.Start();
-    conv2d<<<dim3((W + 15) / 16, (H + 15) / 16, 8), block>>>(d_input, d_w_conv1, d_conv1_out, H, W, C, 8);
+    conv2d<<<dim3((W + 15) / 16, (H + 15) / 16, 256), block>>>(d_input, d_w_conv1, d_conv1_out, H, W, C, 256);
     cudaDeviceSynchronize();
     timer.Stop();
     t_conv1 = timer.Elapsed();
 
     // ===== ReLU 1 =====
     timer.Start();
-    relu<<<(8 * H * W + 255) / 256, 256>>>(d_conv1_out, 8 * H * W);
+    relu<<<(256 * H * W + 255) / 256, 256>>>(d_conv1_out, 256 * H * W);
     cudaDeviceSynchronize();
     timer.Stop();
     t_relu1 = timer.Elapsed();
 
     // ===== MaxPool 1 =====
     timer.Start();
-    maxpool<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 8), block>>>(d_conv1_out, d_pool1_out, H, W, 8);
+    maxpool<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
     cudaDeviceSynchronize();
     timer.Stop();
     t_pool1 = timer.Elapsed();
 
-    // ===== CONV 2 =====
+    // ===== CONV 2: 256→128 =====
     timer.Start();
-    conv2d<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 4), block>>>(d_pool1_out, d_w_conv2, d_conv2_out, H2, W2, 8, 4);
+    conv2d<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 128), block>>>(d_pool1_out, d_w_conv2, d_conv2_out, H2, W2, 256, 128);
     cudaDeviceSynchronize();
     timer.Stop();
     t_conv2 = timer.Elapsed();
 
     // ===== ReLU 2 =====
     timer.Start();
-    relu<<<(4 * H2 * W2 + 255) / 256, 256>>>(d_conv2_out, 4 * H2 * W2);
+    relu<<<(128 * H2 * W2 + 255) / 256, 256>>>(d_conv2_out, 128 * H2 * W2);
     cudaDeviceSynchronize();
     timer.Stop();
     t_relu2 = timer.Elapsed();
 
-    // ===== MaxPool 2 =====
+    // ===== MaxPool 2 (Latent: 128×8×8) =====
     timer.Start();
-    maxpool<<<dim3((W4 + 15) / 16, (H4 + 15) / 16, 4), block>>>(d_conv2_out, d_pool2_out, H2, W2, 4);
+    maxpool<<<dim3((W4 + 15) / 16, (H4 + 15) / 16, 128), block>>>(d_conv2_out, d_pool2_out, H2, W2, 128);
     cudaDeviceSynchronize();
     timer.Stop();
     t_pool2 = timer.Elapsed();
 
-    // ===== Upsample 1 =====
-    timer.Start();
-    upsample<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 4), block>>>(d_pool2_out, d_ups1_out, H4, W4, 4);
-    cudaDeviceSynchronize();
-    timer.Stop();
-    t_up1 = timer.Elapsed();
+    // ===== DECODER =====
 
-    // ===== DECODER CONV 1 =====
+    // ===== DECODER CONV 1: 128→128 =====
     timer.Start();
-    conv2d<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 8), block>>>(d_ups1_out, d_w_dec1, d_decoder1_out, H2, W2, 4, 8);
+    conv2d<<<dim3((W4 + 15) / 16, (H4 + 15) / 16, 128), block>>>(d_pool2_out, d_w_dec1, d_dec1_out, H4, W4, 128, 128);
     cudaDeviceSynchronize();
     timer.Stop();
     t_dec1 = timer.Elapsed();
 
-    // ===== Upsample 2 =====
+    // ===== Upsample 1: 8×8 → 16×16 =====
     timer.Start();
-    upsample<<<dim3((W + 15) / 16, (H + 15) / 16, 8), block>>>(d_decoder1_out, d_ups2_out, H2, W2, 8);
+    upsample<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 128), block>>>(d_dec1_out, d_ups1_out, H4, W4, 128);
+    cudaDeviceSynchronize();
+    timer.Stop();
+    t_up1 = timer.Elapsed();
+
+    // ===== DECODER CONV 2: 128→256 =====
+    float t_dec2;
+    timer.Start();
+    conv2d<<<dim3((W2 + 15) / 16, (H2 + 15) / 16, 256), block>>>(d_ups1_out, d_w_dec2, d_dec2_out, H2, W2, 128, 256);
+    cudaDeviceSynchronize();
+    timer.Stop();
+    t_dec2 = timer.Elapsed();
+
+    // ===== Upsample 2: 16×16 → 32×32 =====
+    timer.Start();
+    upsample<<<dim3((W + 15) / 16, (H + 15) / 16, 256), block>>>(d_dec2_out, d_ups2_out, H2, W2, 256);
     cudaDeviceSynchronize();
     timer.Stop();
     t_up2 = timer.Elapsed();
 
-    // ===== FINAL CONV =====
+    // ===== FINAL CONV: 256→3 =====
     timer.Start();
-    conv2d<<<dim3((W + 15) / 16, (H + 15) / 16, C), block>>>(d_ups2_out, d_w_dec2, d_output, H, W, 8, C);
+    conv2d<<<dim3((W + 15) / 16, (H + 15) / 16, C), block>>>(d_ups2_out, d_w_final, d_output, H, W, 256, C);
     cudaDeviceSynchronize();
     timer.Stop();
     t_final = timer.Elapsed();
@@ -175,7 +194,7 @@ void Autoencoder::forward(const float *host_input, float *host_output, bool verb
     float total =
         t_conv1 + t_relu1 + t_pool1 +
         t_conv2 + t_relu2 + t_pool2 +
-        t_up1 + t_dec1 + t_up2 + t_final;
+        t_dec1 + t_up1 + t_dec2 + t_up2 + t_final;
 
     if (verbose) {
         auto pct = [&](float t)
@@ -188,8 +207,9 @@ void Autoencoder::forward(const float *host_input, float *host_output, bool verb
         cout << "Conv2:      " << t_conv2 << " ms  (" << pct(t_conv2) << "%)\n";
         cout << "ReLU2:      " << t_relu2 << " ms  (" << pct(t_relu2) << "%)\n";
         cout << "MaxPool2:   " << t_pool2 << " ms  (" << pct(t_pool2) << "%)\n";
+        cout << "DecodeConv1:" << t_dec1 << " ms  (" << pct(t_dec1) << "%)\n";
         cout << "Upsample1:  " << t_up1 << " ms  (" << pct(t_up1) << "%)\n";
-        cout << "DecodeConv: " << t_dec1 << " ms  (" << pct(t_dec1) << "%)\n";
+        cout << "DecodeConv2:" << t_dec2 << " ms  (" << pct(t_dec2) << "%)\n";
         cout << "Upsample2:  " << t_up2 << " ms  (" << pct(t_up2) << "%)\n";
         cout << "FinalConv:  " << t_final << " ms  (" << pct(t_final) << "%)\n";
 
@@ -209,8 +229,9 @@ Autoencoder::~Autoencoder()
     gpu_free(d_pool1_out);
     gpu_free(d_conv2_out);
     gpu_free(d_pool2_out);
+    gpu_free(d_dec1_out);
     gpu_free(d_ups1_out);
-    gpu_free(d_decoder1_out);
+    gpu_free(d_dec2_out);
     gpu_free(d_ups2_out);
     gpu_free(d_output);
 
@@ -218,4 +239,5 @@ Autoencoder::~Autoencoder()
     gpu_free(d_w_conv2);
     gpu_free(d_w_dec1);
     gpu_free(d_w_dec2);
+    gpu_free(d_w_final);
 }

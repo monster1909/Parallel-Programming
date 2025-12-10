@@ -10,6 +10,10 @@ public:
 
     // Hàm forward giờ nhận thêm tham số batch_size thực tế
     void forward(const float* host_input, float* host_output, int batch_size = 64, bool verbose = true);
+    
+    // Feature extraction mode - chỉ chạy encoder (không có decoder)
+    void extract_features(const float* host_input, float* host_features, int batch_size = 64, bool verbose = false);
+    
     static void device_synchronize();
 
 public: 

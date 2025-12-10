@@ -7,7 +7,7 @@ using namespace std;
 
 int main() {
     cout << "========== PHASE 3 v2: BATCHED OPTIMIZATION ==========\n";
-    int BATCH_SIZE = 32; 
+    int BATCH_SIZE = 32;  // Default batch size
     int H=32, W=32, C=3;
     
     Autoencoder model(H, W, C, BATCH_SIZE);
@@ -31,8 +31,17 @@ int main() {
     
     cudaEventRecord(start);
     for(int i=0; i<NUM_BATCHES; i++) {
+        // Show progress every 100 batches
+        if (i % 100 == 0) {
+            float progress = (i * 100.0f) / NUM_BATCHES;
+            int images_processed = i * BATCH_SIZE;
+            cout << "[PROGRESS] Batch " << i << "/" << NUM_BATCHES 
+                 << " (" << progress << "%) - " << images_processed << " images    \r" << flush;
+        }
         model.forward(batch_input.data(), batch_output.data(), BATCH_SIZE, false);
     }
+    cout << "[PROGRESS] Batch " << NUM_BATCHES << "/" << NUM_BATCHES 
+         << " (100.0%) - " << ACTUAL_IMAGES << " images    \n";
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     

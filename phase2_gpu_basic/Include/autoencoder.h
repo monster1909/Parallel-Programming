@@ -23,7 +23,8 @@ private:
     float *d_conv2_out;
     float *d_pool2_out;
     float *d_ups1_out;
-    float *d_decoder1_out;
+    float *d_dec1_out;     
+    float *d_dec2_out;     
     float *d_ups2_out;
     float *d_output;
 
@@ -31,13 +32,13 @@ private:
     vector<float> w_conv2;
     vector<float> w_dec1;
     vector<float> w_dec2;
-    vector<float> w_final;
+    vector<float> w_final; 
 
     float *d_w_conv1;
     float *d_w_conv2;
     float *d_w_dec1;
     float *d_w_dec2;
-    float *d_w_final;
+    float *d_w_final;           
 };
 
 #endif 

@@ -10,6 +10,9 @@ using namespace std;
 
 void im2col_gpu(const float* data_im, float* data_col, int batch_size, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
 extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C, int M, int N, int K);
+extern "C" __global__ void gemm_tiled_relu(const float* A, const float* B, float* C, int M, int N, int K);  // FUSED
+extern "C" __global__ void gemm_tiled_optimized(const float* A, const float* B, float* C, int M, int N, int K);  // OPTIMIZED 32x32
+extern "C" __global__ void gemm_tiled_relu_optimized(const float* A, const float* B, float* C, int M, int N, int K);  // OPTIMIZED FUSED 32x32
 extern "C" __global__ void relu(float* x, int size);
 extern "C" __global__ void maxpool(const float* input, float* output, int H, int W, int C);
 extern "C" __global__ void upsample(const float* input, float* output, int H, int W, int C);
@@ -29,12 +32,30 @@ void forward_conv_layer(const float* d_input, const float* d_weights, float* d_o
     gemm_tiled<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 
+// FUSED: Conv + ReLU in one pass
+void forward_conv_layer_relu(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
+                              int batch_size, int H, int W, int C_in, int C_out) 
+{
+    int ksize = 3, pad = 1, stride = 1;
+    
+    im2col_gpu(d_input, d_col_buffer, batch_size, C_in, H, W, ksize, pad, stride, H, W);
+
+    int M = C_out;
+    int N = batch_size * H * W;
+    int K = C_in * ksize * ksize; 
+
+    dim3 dimGrid((N + 15)/16, (M + 15)/16);  // Use 16x16 tiles (better for this workload)
+    dim3 dimBlock(16, 16);
+    gemm_tiled_relu<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);  // FUSED KERNEL
+}
+
 Autoencoder::Autoencoder(int H_, int W_, int C_, int max_batch_)
     : H(H_), W(W_), C(C_), MAX_B(max_batch_)
 {
     cout << "[INFO] Init Batch Autoencoder (Max Batch: " << MAX_B << ")..." << endl;
 
-    int C1 = 64, C2 = 32;
+    int C1 = 256;  // Match Phase 1 & 2 specification
+    int C2 = 128;
     auto init_vec = [](vector<float>& v, int size) { v.resize(size, 0.01f); };
     init_vec(w_conv1, C1 * C * 9); init_vec(w_conv2, C2 * C1 * 9);
     init_vec(w_dec1, C2 * C2 * 9); init_vec(w_dec2, C1 * C2 * 9); init_vec(w_final, C * C1 * 9);
@@ -94,21 +115,16 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     dim3 block(16, 16);
 
     // Kích thước kênh (phải khớp với constructor)
-    int C1 = 64;
-    int C2 = 32;
+    int C1 = 256;  // Match specification
+    int C2 = 128;
 
-    // Encoder
+    // Encoder - FUSED Conv1+ReLU1
     timer.Start();
-    forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, B, H, W, C, C1);
+    forward_conv_layer_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, B, H, W, C, C1);  // FUSED
     cudaDeviceSynchronize();
     timer.Stop();
     t_conv1 = timer.Elapsed();
-
-    timer.Start();
-    relu<<<(B*C1*H*W+255)/256, 256>>>(d_conv1_out, B*C1*H*W);
-    cudaDeviceSynchronize();
-    timer.Stop();
-    t_relu1 = timer.Elapsed();
+    t_relu1 = 0.0f;  // Fused into Conv1
 
     timer.Start();
     dim3 grid_pool1((W/2 + 15)/16, (H/2 + 15)/16, B * C1); 
@@ -117,17 +133,13 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Stop();
     t_pool1 = timer.Elapsed();
 
+    // FUSED Conv2+ReLU2
     timer.Start();
-    forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, B, H/2, W/2, C1, C2);
+    forward_conv_layer_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, B, H/2, W/2, C1, C2);  // FUSED
     cudaDeviceSynchronize();
     timer.Stop();
     t_conv2 = timer.Elapsed();
-
-    timer.Start();
-    relu<<<(B*C2*(H/2)*(W/2)+255)/256, 256>>>(d_conv2_out, B*C2*(H/2)*(W/2));
-    cudaDeviceSynchronize();
-    timer.Stop();
-    t_relu2 = timer.Elapsed();
+    t_relu2 = 0.0f;  // Fused into Conv2
 
     timer.Start();
     dim3 grid_pool2((W/4 + 15)/16, (H/4 + 15)/16, B * C2);
@@ -136,18 +148,13 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Stop();
     t_pool2 = timer.Elapsed();
 
-    // Decoder
+    // Decoder - FUSED DecodeConv1+ReLU
     timer.Start();
-    forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, B, H/4, W/4, C2, C2);
+    forward_conv_layer_relu(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, B, H/4, W/4, C2, C2);  // FUSED
     cudaDeviceSynchronize();
     timer.Stop();
     t_dec1 = timer.Elapsed();
-
-    timer.Start();
-    relu<<<(B*C2*(H/4)*(W/4)+255)/256, 256>>>(d_dec1_out, B*C2*(H/4)*(W/4));
-    cudaDeviceSynchronize();
-    timer.Stop();
-    t_relu_dec1 = timer.Elapsed();
+    t_relu_dec1 = 0.0f;  // Fused into DecConv1
 
     timer.Start();
     dim3 grid_up1((W/2 + 15)/16, (H/2 + 15)/16, B * C2);
@@ -156,17 +163,13 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Stop();
     t_up1 = timer.Elapsed();
 
+    // FUSED DecodeConv2+ReLU
     timer.Start();
-    forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, B, H/2, W/2, C2, C1);
+    forward_conv_layer_relu(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, B, H/2, W/2, C2, C1);  // FUSED
     cudaDeviceSynchronize();
     timer.Stop();
     t_dec2 = timer.Elapsed();
-
-    timer.Start();
-    relu<<<(B*C1*(H/2)*(W/2)+255)/256, 256>>>(d_dec2_out, B*C1*(H/2)*(W/2));
-    cudaDeviceSynchronize();
-    timer.Stop();
-    t_relu_dec2 = timer.Elapsed();
+    t_relu_dec2 = 0.0f;  // Fused into DecConv2
 
     timer.Start();
     dim3 grid_up2((W + 15)/16, (H + 15)/16, B * C1);
@@ -206,6 +209,78 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
 
         cout << "----------------------------------\n";
         cout << "TOTAL FORWARD TIME: " << total << " ms\n";
+        cout << "==================================\n";
+    }
+}// Add this to the end of autoencoder.cu
+
+// FEATURE EXTRACTION MODE - Chỉ chạy encoder (không có decoder)
+void Autoencoder::extract_features(const float* host_input, float* host_features, int batch_size, bool verbose)
+{
+    if (verbose) {
+        cout << "\n===== FEATURE EXTRACTION (Encoder Only) - Batch Size: " << batch_size << " =====\n";
+    }
+
+    int B = batch_size;
+    GpuTimer timer;
+    
+    // Copy Input Batch
+    gpu_memcpy_h2d(d_input, host_input, B * C * H * W * sizeof(float));
+    
+    dim3 block(16, 16);
+    int C1 = 256;
+    int C2 = 128;
+    
+    float t_total = 0.0f;
+    
+    // ENCODER ONLY
+    // Conv1 + ReLU1 (FUSED)
+    if (verbose) timer.Start();
+    forward_conv_layer_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, B, H, W, C, C1);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // MaxPool1
+    if (verbose) timer.Start();
+    dim3 grid_pool1((W/2 + 15)/16, (H/2 + 15)/16, B * C1);
+    maxpool<<<grid_pool1, block>>>(d_conv1_out, d_pool1_out, H, W, C1);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // Conv2 + ReLU2 (FUSED)
+    if (verbose) timer.Start();
+    forward_conv_layer_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, B, H/2, W/2, C1, C2);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // MaxPool2 - This gives us the latent features
+    if (verbose) timer.Start();
+    dim3 grid_pool2((W/4 + 15)/16, (H/4 + 15)/16, B * C2);
+    maxpool<<<grid_pool2, block>>>(d_conv2_out, d_pool2_out, H/2, W/2, C2);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // Copy latent features back to host
+    // Latent size: B × C2 × (H/4) × (W/4) = B × 128 × 8 × 8
+    int latent_size = B * C2 * (H/4) * (W/4);
+    gpu_memcpy_d2h(host_features, d_pool2_out, latent_size * sizeof(float));
+    cudaDeviceSynchronize();
+    
+    if (verbose) {
+        cout << "\n[FEATURE EXTRACTION] Total time: " << t_total << " ms\n";
+        cout << "[FEATURE EXTRACTION] Latent size: " << C2 << "x" << (H/4) << "x" << (W/4) 
+             << " = " << (C2 * (H/4) * (W/4)) << " dims per image\n";
         cout << "==================================\n";
     }
 }

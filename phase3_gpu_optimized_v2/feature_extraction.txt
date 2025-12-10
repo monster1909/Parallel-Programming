@@ -1,0 +1,73 @@
+// Add this to the end of autoencoder.cu
+
+// FEATURE EXTRACTION MODE - Chỉ chạy encoder (không có decoder)
+void Autoencoder::extract_features(const float* host_input, float* host_features, int batch_size, bool verbose)
+{
+    if (verbose) {
+        cout << "\n===== FEATURE EXTRACTION (Encoder Only) - Batch Size: " << batch_size << " =====\n";
+    }
+
+    int B = batch_size;
+    GpuTimer timer;
+    
+    // Copy Input Batch
+    gpu_memcpy_h2d(d_input, host_input, B * C * H * W * sizeof(float));
+    
+    dim3 block(16, 16);
+    int C1 = 256;
+    int C2 = 128;
+    
+    float t_total = 0.0f;
+    
+    // ENCODER ONLY
+    // Conv1 + ReLU1 (FUSED)
+    if (verbose) timer.Start();
+    forward_conv_layer_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, B, H, W, C, C1);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // MaxPool1
+    if (verbose) timer.Start();
+    dim3 grid_pool1((W/2 + 15)/16, (H/2 + 15)/16, B * C1);
+    maxpool<<<grid_pool1, block>>>(d_conv1_out, d_pool1_out, H, W, C1);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // Conv2 + ReLU2 (FUSED)
+    if (verbose) timer.Start();
+    forward_conv_layer_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, B, H/2, W/2, C1, C2);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // MaxPool2 - This gives us the latent features
+    if (verbose) timer.Start();
+    dim3 grid_pool2((W/4 + 15)/16, (H/4 + 15)/16, B * C2);
+    maxpool<<<grid_pool2, block>>>(d_conv2_out, d_pool2_out, H/2, W/2, C2);
+    cudaDeviceSynchronize();
+    if (verbose) {
+        timer.Stop();
+        t_total += timer.Elapsed();
+    }
+    
+    // Copy latent features back to host
+    // Latent size: B × C2 × (H/4) × (W/4) = B × 128 × 8 × 8
+    int latent_size = B * C2 * (H/4) * (W/4);
+    gpu_memcpy_d2h(host_features, d_pool2_out, latent_size * sizeof(float));
+    cudaDeviceSynchronize();
+    
+    if (verbose) {
+        cout << "\n[FEATURE EXTRACTION] Total time: " << t_total << " ms\n";
+        cout << "[FEATURE EXTRACTION] Latent size: " << C2 << "x" << (H/4) << "x" << (W/4) 
+             << " = " << (C2 * (H/4) * (W/4)) << " dims per image\n";
+        cout << "==================================\n";
+    }
+}

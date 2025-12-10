@@ -40,8 +40,8 @@ Autoencoder::Autoencoder(int H_, int W_, int C_)
 {
     cout << "[INFO] Initializing Phase 3 Autoencoder (Im2Col + GEMM)..." << endl;
 
-    int C1 = 64;
-    int C2 = 32;
+    int C1 = 256;  // Match Phase 1 & 2 specification
+    int C2 = 128;
 
     auto init_vec = [](vector<float>& v, int size) {
         v.resize(size);
@@ -110,7 +110,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, bool verb
 
     int H2 = H / 2, W2 = W / 2;
     int H4 = H / 4, W4 = W / 4;
-    int C1 = 64, C2 = 32;
+    int C1 = 256, C2 = 128;  // Match specification
     dim3 block(16, 16);
 
     GpuTimer timer;
