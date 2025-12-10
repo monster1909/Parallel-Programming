@@ -66,7 +66,7 @@ int main()
     int BATCH_SIZE = 1;  // Use 1 for fair comparison with Phase 2 & 3
 
     // Load one image and replicate to fill batch
-    string dataPath = "../data/cifar-10-batches-bin/data_batch_1.bin";
+    string dataPath = "../Data/cifar-10-batches-bin/data_batch_1.bin";
     int imageIndex = 0;
     int label;
     vector<float> single_img;

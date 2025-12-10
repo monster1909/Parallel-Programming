@@ -71,7 +71,7 @@ int main()
     int C = 3;
 
     // ===== ĐỌC ẢNH TỪ CIFAR-10 =====
-    string dataPath = "../data/cifar-10-batches-bin/data_batch_1.bin";
+    string dataPath = "../Data/cifar-10-batches-bin/data_batch_1.bin";
     int imageIndex = 0; // Đọc ảnh đầu tiên
     int label;
     vector<float> input;

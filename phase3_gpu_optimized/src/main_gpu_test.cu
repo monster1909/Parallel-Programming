@@ -65,7 +65,7 @@ int main()
     int C = 3;
 
     // Load image from CIFAR-10
-    string dataPath = "../data/cifar-10-batches-bin/data_batch_1.bin";
+    string dataPath = "../Data/cifar-10-batches-bin/data_batch_1.bin";
     int imageIndex = 0;
     int label;
     vector<float> input;

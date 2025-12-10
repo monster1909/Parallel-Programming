@@ -30,7 +30,7 @@ int main() {
 
     int H = 32, W = 32, C = 3;
     vector<float> single_img;
-    string dataPath = "../data/cifar-10-batches-bin/data_batch_1.bin";
+    string dataPath = "../Data/cifar-10-batches-bin/data_batch_1.bin";
     
     if (!loadOneCIFAR10Image(dataPath, single_img)) {
         single_img.resize(C*H*W, 0.5f);
