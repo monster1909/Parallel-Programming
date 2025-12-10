@@ -2,10 +2,10 @@
 #include <vector>
 #include <cuda_runtime.h>
 
-#include "../include/autoencoder.h"
-#include "../include/utils/gpu_memory.h"
-#include "../include/utils/cuda_utils.h"
-#include "../include/utils/gpu_timer.h"
+#include "../Include/autoencoder.h"
+#include "../Include/utils/gpu_memory.h"
+#include "../Include/utils/cuda_utils.h"
+#include "../Include/utils/gpu_timer.h"
 
 using namespace std;
 

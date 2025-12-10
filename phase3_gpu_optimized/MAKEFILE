@@ -1,5 +1,12 @@
-# 1. Trình biên dịch & Cờ
-NVCC = /usr/local/cuda-12.6/bin/nvcc
+# 1. Trình biên dịch & Auto-detect NVCC compiler
+NVCC := $(shell which nvcc 2>/dev/null || echo /usr/local/cuda/bin/nvcc)
+
+# Check if nvcc exists
+ifeq ($(shell test -x $(NVCC) && echo yes),yes)
+    $(info Found NVCC at: $(NVCC))
+else
+    $(error NVCC not found. Please install CUDA toolkit)
+endif
 
 INC = -I./Include 
 CXXFLAGS = -O3 -std=c++17

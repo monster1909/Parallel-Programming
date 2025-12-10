@@ -1,4 +1,12 @@
-NVCC = /usr/local/cuda-12.6/bin/nvcc
+# Auto-detect NVCC compiler
+NVCC := $(shell which nvcc 2>/dev/null || echo /usr/local/cuda/bin/nvcc)
+
+# Check if nvcc exists
+ifeq ($(shell test -x $(NVCC) && echo yes),yes)
+    $(info Found NVCC at: $(NVCC))
+else
+    $(error NVCC not found. Please install CUDA toolkit)
+endif
 CXXFLAGS = -std=c++17
 
 SRCS = src/main_gpu.cu \

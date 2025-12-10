@@ -11,7 +11,7 @@ Project implement autoencoder cho CIFAR-10 với 3 phases GPU optimization.
 - C++17
 - CIFAR-10 dataset trong `data/cifar-10-batches-bin/`
 
-**Lưu ý**: Tất cả lệnh dùng đường dẫn tương đối, có thể chạy trên Colab sau khi upload project.
+**Chạy trên Google Colab**: Xem file `COLAB_SETUP.md` để biết cách setup nhanh.
 
 ---
 

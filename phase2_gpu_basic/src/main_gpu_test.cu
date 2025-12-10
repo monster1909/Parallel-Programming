@@ -3,7 +3,7 @@
 #include <fstream>
 #include <cuda_runtime.h>
 
-#include "../include/autoencoder.h"
+#include "../Include/autoencoder.h"
 
 using namespace std;
 

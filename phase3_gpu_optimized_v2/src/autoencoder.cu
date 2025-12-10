@@ -8,14 +8,14 @@
 
 using namespace std;
 
-void im2col_gpu(const float* data_im, float* data_col, int batch_size, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
-extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C, int M, int N, int K);
-extern "C" __global__ void gemm_tiled_relu(const float* A, const float* B, float* C, int M, int N, int K);  // FUSED
-extern "C" __global__ void gemm_tiled_optimized(const float* A, const float* B, float* C, int M, int N, int K);  // OPTIMIZED 32x32
-extern "C" __global__ void gemm_tiled_relu_optimized(const float* A, const float* B, float* C, int M, int N, int K);  // OPTIMIZED FUSED 32x32
-extern "C" __global__ void relu(float* x, int size);
-extern "C" __global__ void maxpool(const float* input, float* output, int H, int W, int C);
-extern "C" __global__ void upsample(const float* input, float* output, int H, int W, int C);
+// External kernel declarations - USE OPTIMIZED VERSIONS
+extern "C" __global__ void gemm_tiled_relu_optimized(const float*, const float*, float*, int, int, int);
+extern "C" __global__ void gemm_tiled_optimized(const float*, const float*, float*, int, int, int);
+extern "C" __global__ void maxpool(const float*, float*, int, int, int);
+extern "C" __global__ void upsample(const float*, float*, int, int, int);
+extern void im2col_gpu(const float*, float*, int, int, int, int, int, int, int, int, int);  // OPTIMIZED 32x32
+extern "C" __global__ void relu(float* x, int size); // This declaration is kept
+// Wrapper for convolution using im2col + GEMM (NO ReLU)
 void forward_conv_layer(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
                         int batch_size, int H, int W, int C_in, int C_out) 
 {
@@ -27,12 +27,13 @@ void forward_conv_layer(const float* d_input, const float* d_weights, float* d_o
     int N = batch_size * H * W;
     int K = C_in * ksize * ksize; 
 
+    // Keep 16x16 tiles
     dim3 dimGrid((N + 15)/16, (M + 15)/16);
     dim3 dimBlock(16, 16);
-    gemm_tiled<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
+    gemm_tiled_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 
-// FUSED: Conv + ReLU in one pass
+// Wrapper for convolution using im2col + GEMM (FUSED with ReLU)
 void forward_conv_layer_relu(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
                               int batch_size, int H, int W, int C_in, int C_out) 
 {
@@ -44,9 +45,10 @@ void forward_conv_layer_relu(const float* d_input, const float* d_weights, float
     int N = batch_size * H * W;
     int K = C_in * ksize * ksize; 
 
-    dim3 dimGrid((N + 15)/16, (M + 15)/16);  // Use 16x16 tiles (better for this workload)
+    // Keep 16x16 tiles - better for GTX 1650
+    dim3 dimGrid((N + 15)/16, (M + 15)/16);
     dim3 dimBlock(16, 16);
-    gemm_tiled_relu<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);  // FUSED KERNEL
+    gemm_tiled_relu_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 
 Autoencoder::Autoencoder(int H_, int W_, int C_, int max_batch_)
@@ -121,7 +123,7 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     // Encoder - FUSED Conv1+ReLU1
     timer.Start();
     forward_conv_layer_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, B, H, W, C, C1);  // FUSED
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_conv1 = timer.Elapsed();
     t_relu1 = 0.0f;  // Fused into Conv1
@@ -129,14 +131,14 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Start();
     dim3 grid_pool1((W/2 + 15)/16, (H/2 + 15)/16, B * C1); 
     maxpool<<<grid_pool1, block>>>(d_conv1_out, d_pool1_out, H, W, C1);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_pool1 = timer.Elapsed();
 
     // FUSED Conv2+ReLU2
     timer.Start();
     forward_conv_layer_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, B, H/2, W/2, C1, C2);  // FUSED
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_conv2 = timer.Elapsed();
     t_relu2 = 0.0f;  // Fused into Conv2
@@ -144,14 +146,14 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Start();
     dim3 grid_pool2((W/4 + 15)/16, (H/4 + 15)/16, B * C2);
     maxpool<<<grid_pool2, block>>>(d_conv2_out, d_pool2_out, H/2, W/2, C2);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_pool2 = timer.Elapsed();
 
     // Decoder - FUSED DecodeConv1+ReLU
     timer.Start();
     forward_conv_layer_relu(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, B, H/4, W/4, C2, C2);  // FUSED
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_dec1 = timer.Elapsed();
     t_relu_dec1 = 0.0f;  // Fused into DecConv1
@@ -159,14 +161,14 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Start();
     dim3 grid_up1((W/2 + 15)/16, (H/2 + 15)/16, B * C2);
     upsample<<<grid_up1, block>>>(d_dec1_out, d_ups1_out, H/4, W/4, C2);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_up1 = timer.Elapsed();
 
     // FUSED DecodeConv2+ReLU
     timer.Start();
     forward_conv_layer_relu(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, B, H/2, W/2, C2, C1);  // FUSED
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_dec2 = timer.Elapsed();
     t_relu_dec2 = 0.0f;  // Fused into DecConv2
@@ -174,18 +176,18 @@ void Autoencoder::forward(const float* host_input, float* host_output, int batch
     timer.Start();
     dim3 grid_up2((W + 15)/16, (H + 15)/16, B * C1);
     upsample<<<grid_up2, block>>>(d_dec2_out, d_ups2_out, H/2, W/2, C1);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_up2 = timer.Elapsed();
 
     timer.Start();
     forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, B, H, W, C1, 3);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     timer.Stop();
     t_final = timer.Elapsed();
 
     gpu_memcpy_d2h(host_output, d_output, B * C * H * W * sizeof(float));
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
 
     if (verbose) {
         float total = t_conv1 + t_relu1 + t_pool1 + t_conv2 + t_relu2 + t_pool2 +
@@ -236,7 +238,7 @@ void Autoencoder::extract_features(const float* host_input, float* host_features
     // Conv1 + ReLU1 (FUSED)
     if (verbose) timer.Start();
     forward_conv_layer_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, B, H, W, C, C1);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     if (verbose) {
         timer.Stop();
         t_total += timer.Elapsed();
@@ -246,7 +248,7 @@ void Autoencoder::extract_features(const float* host_input, float* host_features
     if (verbose) timer.Start();
     dim3 grid_pool1((W/2 + 15)/16, (H/2 + 15)/16, B * C1);
     maxpool<<<grid_pool1, block>>>(d_conv1_out, d_pool1_out, H, W, C1);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     if (verbose) {
         timer.Stop();
         t_total += timer.Elapsed();
@@ -255,7 +257,7 @@ void Autoencoder::extract_features(const float* host_input, float* host_features
     // Conv2 + ReLU2 (FUSED)
     if (verbose) timer.Start();
     forward_conv_layer_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, B, H/2, W/2, C1, C2);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     if (verbose) {
         timer.Stop();
         t_total += timer.Elapsed();
@@ -265,7 +267,7 @@ void Autoencoder::extract_features(const float* host_input, float* host_features
     if (verbose) timer.Start();
     dim3 grid_pool2((W/4 + 15)/16, (H/4 + 15)/16, B * C2);
     maxpool<<<grid_pool2, block>>>(d_conv2_out, d_pool2_out, H/2, W/2, C2);
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     if (verbose) {
         timer.Stop();
         t_total += timer.Elapsed();
@@ -275,7 +277,7 @@ void Autoencoder::extract_features(const float* host_input, float* host_features
     // Latent size: B × C2 × (H/4) × (W/4) = B × 128 × 8 × 8
     int latent_size = B * C2 * (H/4) * (W/4);
     gpu_memcpy_d2h(host_features, d_pool2_out, latent_size * sizeof(float));
-    cudaDeviceSynchronize();
+    if (verbose) cudaDeviceSynchronize();
     
     if (verbose) {
         cout << "\n[FEATURE EXTRACTION] Total time: " << t_total << " ms\n";
