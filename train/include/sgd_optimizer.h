@@ -39,4 +39,15 @@ void zero_gradient(
     int N
 );
 
+// ==============================
+// Gradient Clipping
+// ==============================
+
+// Clip gradients by global norm
+void clip_gradients(
+    float* d_grad,
+    int N,
+    float max_norm = 1.0f
+);
+
 #endif // SGD_OPTIMIZER_H

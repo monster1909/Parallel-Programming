@@ -3,6 +3,8 @@
 #include <fstream>
 #include <cuda_runtime.h>
 #include <chrono>
+#include <random>
+#include <cmath>
 
 // Include utilities từ phase2
 #include "../../phase2_gpu_basic/Include/utils/gpu_memory.h"
@@ -27,6 +29,17 @@ extern "C" __global__ void relu(float *x, int size);
 extern "C" __global__ void maxpool(const float *input, float *output, int H, int W, int C);
 extern "C" __global__ void upsample(const float *input, float *output, int H, int W, int C);
 
+// Xavier/Glorot initialization helper with fixed seed
+void xavier_init(vector<float>& weights, int fan_in, int fan_out) {
+    mt19937 gen(42);  // Fixed seed for reproducibility
+    float limit = sqrt(6.0f / (fan_in + fan_out));
+    uniform_real_distribution<float> dis(-limit, limit);
+    
+    for (size_t i = 0; i < weights.size(); i++) {
+        weights[i] = dis(gen);
+    }
+}
+
 int main() {
     cout << "===== Phase 2 Training =====" << endl;
     
@@ -42,12 +55,20 @@ int main() {
     
     logger.log_training_start(NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE);
     
-    // Allocate weights (SMALLER initialization)
-    vector<float> w_conv1(256 * C * 3 * 3, 0.001f);  // 0.001 instead of 0.01
-    vector<float> w_conv2(128 * 256 * 3 * 3, 0.001f);
-    vector<float> w_dec1(128 * 128 * 3 * 3, 0.001f);
-    vector<float> w_dec2(256 * 128 * 3 * 3, 0.001f);
-    vector<float> w_final(C * 256 * 3 * 3, 0.001f);
+    // Allocate weights
+    vector<float> w_conv1(256 * C * 3 * 3);
+    vector<float> w_conv2(128 * 256 * 3 * 3);
+    vector<float> w_dec1(128 * 128 * 3 * 3);
+    vector<float> w_dec2(256 * 128 * 3 * 3);
+    vector<float> w_final(C * 256 * 3 * 3);
+    
+    // Initialize weights with Xavier initialization (seed 42 for reproducibility)
+    cout << "[INFO] Initializing weights with Xavier initialization (seed=42)..." << endl;
+    xavier_init(w_conv1, C * 3 * 3, 256 * 3 * 3);        // Conv1: 3→256
+    xavier_init(w_conv2, 256 * 3 * 3, 128 * 3 * 3);      // Conv2: 256→128
+    xavier_init(w_dec1, 128 * 3 * 3, 128 * 3 * 3);       // Dec1: 128→128
+    xavier_init(w_dec2, 128 * 3 * 3, 256 * 3 * 3);       // Dec2: 128→256
+    xavier_init(w_final, 256 * 3 * 3, C * 3 * 3);        // Final: 256→3
     
     // Copy weights to GPU
     float *d_w_conv1 = (float*)gpu_malloc(w_conv1.size() * sizeof(float));
@@ -96,7 +117,7 @@ int main() {
     cout << "[INFO] Memory allocated, starting training..." << endl;
     
     // Training loop
-    for (int epoch = 0; epoch < NUM_EPOCHS; epoch++) {
+    for (int epoch = 1; epoch <= NUM_EPOCHS; epoch++) {
         float epoch_loss = 0.0f;
         int num_batches = 0;
         int total_batches = loader.get_num_batches();
@@ -270,6 +291,14 @@ int main() {
             batch_loss /= BATCH_SIZE;
             epoch_loss += batch_loss;
             
+            // CLIP GRADIENTS (prevent explosion)
+            const float MAX_GRAD_NORM = 0.5f;  // Reduced to prevent gradient explosion
+            clip_gradients(d_grad_w_conv1, w_conv1.size(), MAX_GRAD_NORM);
+            clip_gradients(d_grad_w_conv2, w_conv2.size(), MAX_GRAD_NORM);
+            clip_gradients(d_grad_w_dec1, w_dec1.size(), MAX_GRAD_NORM);
+            clip_gradients(d_grad_w_dec2, w_dec2.size(), MAX_GRAD_NORM);
+            clip_gradients(d_grad_w_final, w_final.size(), MAX_GRAD_NORM);
+            
             // UPDATE WEIGHTS (SGD)
             sgd_update(d_w_conv1, d_grad_w_conv1, LEARNING_RATE, w_conv1.size());
             sgd_update(d_w_conv2, d_grad_w_conv2, LEARNING_RATE, w_conv2.size());
@@ -283,7 +312,7 @@ int main() {
             if (num_batches % update_interval == 0 || num_batches == total_batches) {
                 auto now = chrono::high_resolution_clock::now();
                 float elapsed = chrono::duration<float>(now - epoch_start).count();
-                int progress_pct = (num_batches * 100) / total_batches;
+                int progress_pct = ((num_batches * 20) / total_batches) * 5;  // Round to 5%, 10%, 15%...
                 cout << "  " << progress_pct << "% - Loss: " << batch_loss 
                      << " - Time: " << (int)elapsed << "s" << endl;
             }
