@@ -1,9 +1,3 @@
-Dưới đây là file `README.md` chi tiết và chuyên nghiệp dành cho mã nguồn bạn cung cấp. Nó bao gồm hướng dẫn cài đặt môi trường (đặc biệt là RAPIDS cuML), định dạng dữ liệu đầu vào và cách chạy script.
-
-Bạn có thể lưu nội dung dưới đây vào file tên là `README.md` đặt cùng thư mục với code.
-
------
-
 # 🚀 Training SVM on GPU with RAPIDS cuML (CIFAR-10)
 
 Dự án này thực hiện huấn luyện mô hình **Support Vector Machine (SVM)** để phân loại hình ảnh (sử dụng vector đặc trưng trích xuất từ CIFAR-10) trên **GPU** thông qua thư viện [RAPIDS cuML](https://docs.rapids.ai/).
@@ -56,16 +50,17 @@ Lớp `load_data` trong script sẽ tự động đọc cấu trúc này.
 
 ## 🚀 Cách sử dụng
 
-Giả sử file code của bạn tên là `svm_gpu.py`.
+Giả sử file code của bạn tên là `svm_classifier.py`.
 
 ### 1\. Lệnh cơ bản
 
 Chạy với các tham số mặc định:
 
 ```bash
-python svm_gpu.py \
-  --train_file data/train_features.bin \
-  --test_file data/test_features.bin
+!python svm_classifier.py \
+    --train_file /content/train_features.bin \
+    --test_file /content/train_features.bin \
+    --output_dir ./output_gpu
 ```
 
 ### 2\. Tùy chỉnh tham số (Nâng cao)
@@ -73,7 +68,7 @@ python svm_gpu.py \
 Bạn có thể thay đổi Kernel, tham số C, hoặc lưu model sau khi train:
 
 ```bash
-python svm_gpu.py \
+python svm_classifier.py \
   --train_file data/train_features.bin \
   --test_file data/test_features.bin \
   --output_dir ./ket_qua_svm \
