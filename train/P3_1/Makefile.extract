@@ -1,0 +1,37 @@
+# Makefile for Phase 3.1 Feature Extraction
+
+NVCC = nvcc
+NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
+
+# Directories
+PHASE3_DIR = ../../phase3_gpu_im2col_gemm
+TRAIN_DIR = ..
+
+# Include paths
+INCLUDES = -I$(PHASE3_DIR)/Include -I$(TRAIN_DIR)/include
+
+# Source files
+SOURCES = extract_features.cu \
+          $(PHASE3_DIR)/src/kernels/conv2d.cu \
+          $(PHASE3_DIR)/src/kernels/relu.cu \
+          $(PHASE3_DIR)/src/kernels/maxpool.cu \
+          $(TRAIN_DIR)/src/data_loader.cpp
+
+# Output
+TARGET = extract_features
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCES)
+	@echo "Compiling Feature Extraction..."
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) $(SOURCES) -o $(TARGET)
+	@echo "Build complete: $(TARGET)"
+
+clean:
+	rm -f $(TARGET)
+	@echo "Cleaned feature extraction binary"
+
+run: $(TARGET)
+	./$(TARGET) weights/phase3_v1_epoch_0.bin features.bin
+
+.PHONY: all clean run

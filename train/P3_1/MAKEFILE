@@ -1,0 +1,60 @@
+# Makefile for Phase 3_1 Training (Im2Col + GEMM)
+
+NVCC = nvcc
+NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
+
+# Directories
+PHASE3_DIR = ../../phase3_gpu_optimized
+TRAIN_DIR = ..
+TQDM_DIR = ../../tqdm
+
+# Include paths
+INCLUDES = -I$(PHASE3_DIR)/Include \
+           -I$(TRAIN_DIR)/include \
+           -I$(TQDM_DIR)
+
+# Source files
+TRAIN_SRC = train_phase3_v1.cu
+PHASE3_KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
+                 $(PHASE3_DIR)/src/kernels/gemm.cu \
+                 $(PHASE3_DIR)/src/kernels/relu.cu \
+                 $(PHASE3_DIR)/src/kernels/maxpool.cu \
+                 $(PHASE3_DIR)/src/kernels/upsample.cu
+
+TRAIN_KERNELS = $(TRAIN_DIR)/src/kernels/conv2d_backward.cu \
+                $(TRAIN_DIR)/src/kernels/relu_backward.cu \
+                $(TRAIN_DIR)/src/kernels/maxpool_backward.cu \
+                $(TRAIN_DIR)/src/kernels/upsample_backward.cu \
+                $(TRAIN_DIR)/src/kernels/mse_loss.cu
+
+TRAIN_UTILS = $(TRAIN_DIR)/src/sgd_optimizer.cu \
+              $(TRAIN_DIR)/src/data_loader.cpp \
+              $(TRAIN_DIR)/src/logger.cpp
+
+TQDM_SRC = $(TQDM_DIR)/tqdm.cpp
+
+# Output
+TARGET = train_phase3_v1
+
+all: $(TARGET)
+
+$(TARGET): $(TRAIN_SRC) $(PHASE3_KERNELS) $(TRAIN_KERNELS) $(TRAIN_UTILS) $(TQDM_SRC)
+	@echo "Compiling Phase 3_1 Training (Im2Col + GEMM)..."
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) \
+		$(TRAIN_SRC) \
+		$(PHASE3_KERNELS) \
+		$(TRAIN_KERNELS) \
+		$(TRAIN_UTILS) \
+		$(TQDM_SRC) \
+		-o $(TARGET)
+	@echo "Build complete: $(TARGET)"
+
+clean:
+	rm -f $(TARGET)
+	rm -f logs/*.log
+	@echo "Cleaned build files"
+
+run: $(TARGET)
+	./$(TARGET)
+
+.PHONY: all clean run

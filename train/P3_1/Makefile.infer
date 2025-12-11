@@ -1,0 +1,39 @@
+# Makefile for Phase 3.1 Inference
+
+NVCC = nvcc
+NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
+
+# Directories
+PHASE2_DIR = ../../phase2_gpu_basic
+TRAIN_DIR = ..
+
+# Include paths
+INCLUDES = -I$(PHASE2_DIR)/Include -I$(TRAIN_DIR)/include
+
+# Source files
+SOURCES = infer_phase3_v1.cu \
+          $(PHASE2_DIR)/src/kernels/conv2d.cu \
+          $(PHASE2_DIR)/src/kernels/relu.cu \
+          $(PHASE2_DIR)/src/kernels/maxpool.cu \
+          $(PHASE2_DIR)/src/kernels/upsample.cu \
+          $(TRAIN_DIR)/src/kernels/mse_loss.cu \
+          $(TRAIN_DIR)/src/data_loader.cpp
+
+# Output
+TARGET = infer_phase3_v1
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCES)
+	@echo "Compiling Phase 3.1 Inference..."
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) $(SOURCES) -o $(TARGET)
+	@echo "Build complete: $(TARGET)"
+
+clean:
+	rm -f $(TARGET)
+	@echo "Cleaned inference binary"
+
+run: $(TARGET)
+	./$(TARGET) weights/phase3_v1_epoch_0.bin
+
+.PHONY: all clean run
