@@ -6,7 +6,6 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import joblib
 
 # --- THƯ VIỆN CHÍNH: THUNDERSVM ---
 try:
@@ -22,17 +21,18 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 
 # --- CẤU HÌNH ---
 FEATURE_DIM = 8192
+TRAIN_SAMPLES = 50000  # Cố định số lượng mẫu train theo yêu cầu
 CLASS_NAMES = ['airplane', 'automobile', 'bird', 'cat', 'deer', 
                'dog', 'frog', 'horse', 'ship', 'truck']
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train SVM using ThunderSVM (GPU)")
+    parser = argparse.ArgumentParser(description="Train SVM using ThunderSVM (GPU) with Single Binary Input")
     
-    parser.add_argument('--train_file', type=str, required=True, help='Path to train binary file')
-    parser.add_argument('--test_file', type=str, required=True, help='Path to test binary file')
+    # THAY ĐỔI: Chỉ nhận 1 file input
+    parser.add_argument('--input_file', type=str, required=True, help='Path to the single binary file containing both train and test data')
+    
     parser.add_argument('--output_dir', type=str, default='./output_thundersvm', help='Output directory')
     parser.add_argument('--C', type=float, default=10.0, help='Regularization parameter')
-    # ThunderSVM hỗ trợ: linear, polynomial, rbf, sigmoid
     parser.add_argument('--kernel', type=str, default='rbf', choices=['linear', 'rbf', 'poly', 'sigmoid'], 
                         help='Kernel type (default: rbf)')
     parser.add_argument('--save_model', action='store_true', help='Save the trained model')
@@ -40,15 +40,17 @@ def parse_args():
     return parser.parse_args()
 
 def load_data(filename):
-    """Đọc dữ liệu binary: 1 byte label + 8192 floats feature"""
+    """Đọc toàn bộ dữ liệu binary: 1 byte label + 8192 floats feature"""
     if not os.path.exists(filename):
         raise FileNotFoundError(f"File not found: {filename}")
 
-    print(f"[I/O] Đang đọc file: {filename}...")
+    print(f"[I/O] Đang đọc file toàn cục: {filename}...")
     file_size = os.path.getsize(filename)
-    sample_size = 1 + (FEATURE_DIM * 4)
+    sample_size = 1 + (FEATURE_DIM * 4) # 1 byte label + 4 bytes * 8192 features
     num_samples = file_size // sample_size
     
+    print(f" -> Tổng số mẫu tìm thấy trong file: {num_samples}")
+
     labels = np.zeros(num_samples, dtype=np.float32) 
     features = np.zeros((num_samples, FEATURE_DIM), dtype=np.float32)
 
@@ -57,38 +59,59 @@ def load_data(filename):
 
     offset = 0
     start_time = time.time()
+    
+    # Có thể tối ưu tốc độ đọc bằng struct.iter_unpack hoặc numpy dtype, 
+    # nhưng giữ nguyên logic cũ để đảm bảo tính ổn định với code của bạn.
     for i in range(num_samples):
         labels[i] = struct.unpack_from('B', buffer, offset)[0]
         offset += 1
         features[i] = np.frombuffer(buffer, dtype=np.float32, count=FEATURE_DIM, offset=offset)
         offset += FEATURE_DIM * 4
     
-    print(f"   -> Đã đọc {num_samples} mẫu trong {time.time() - start_time:.2f}s")
+    print(f" -> Đã đọc xong {num_samples} mẫu trong {time.time() - start_time:.2f}s")
     return features, labels
 
 def main():
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # 1. Load Data
+    # 1. Load Data (Toàn bộ)
     print("-" * 40)
-    X_train, y_train = load_data(args.train_file)
-    X_test, y_test = load_data(args.test_file)
+    X_all, y_all = load_data(args.input_file)
 
-    # 2. Preprocessing
-    # Vẫn cần chuẩn hóa để đảm bảo độ chính xác và tốc độ hội tụ
+    # 2. Split Data (Chia 50k đầu làm train, còn lại test)
+    print("-" * 40)
+    total_samples = len(y_all)
+    
+    if total_samples <= TRAIN_SAMPLES:
+        print(f"[ERROR] File dữ liệu chỉ có {total_samples} mẫu, không đủ để lấy {TRAIN_SAMPLES} mẫu train.")
+        exit(1)
+
+    print(f"[SPLIT] Đang chia dữ liệu: {TRAIN_SAMPLES} mẫu đầu -> Train, còn lại -> Test")
+    
+    X_train = X_all[:TRAIN_SAMPLES]
+    y_train = y_all[:TRAIN_SAMPLES]
+    
+    X_test = X_all[TRAIN_SAMPLES:]
+    y_test = y_all[TRAIN_SAMPLES:]
+
+    print(f" -> Train shape: {X_train.shape}, Labels: {y_train.shape}")
+    print(f" -> Test shape : {X_test.shape}, Labels: {y_test.shape}")
+
+    # Giải phóng bộ nhớ biến trung gian nếu file quá lớn
+    del X_all, y_all 
+
+    # 3. Preprocessing
     print("-" * 40)
     print("[PREPROCESS] Chuẩn hóa dữ liệu (StandardScaler)...")
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    # 3. Khởi tạo và Train Model với ThunderSVM
+    # 4. Khởi tạo và Train Model với ThunderSVM
     print("-" * 40)
     print(f"[THUNDERSVM] Bắt đầu huấn luyện (Kernel: {args.kernel}, C: {args.C})...")
     
-    # gpu_id=0: Sử dụng GPU đầu tiên
-    # n_jobs=-1: Sử dụng tất cả các luồng CPU để hỗ trợ (nếu cần)
     clf = SVC(kernel=args.kernel, C=args.C, gamma='auto', verbose=True, gpu_id=0)
     
     start_train = time.time()
@@ -96,14 +119,13 @@ def main():
     train_time = time.time() - start_train
     print(f"[DONE] Huấn luyện hoàn tất sau: {train_time:.2f}s")
 
-    # 4. Save Model
+    # 5. Save Model
     if args.save_model:
         model_path = os.path.join(args.output_dir, 'model_thundersvm.pkl')
-        # ThunderSVM có phương thức save_to_file riêng, ổn định hơn pickle
         clf.save_to_file(model_path)
         print(f"[SAVE] Đã lưu model tại: {model_path}")
 
-    # 5. Evaluate
+    # 6. Evaluate
     print("-" * 40)
     print("[EVAL] Đang dự đoán trên tập Test...")
     
@@ -112,8 +134,8 @@ def main():
     eval_time = time.time() - start_eval
 
     acc = accuracy_score(y_test, y_pred)
-    print(f"   -> Thời gian dự đoán: {eval_time:.2f}s")
-    print(f"   -> ĐỘ CHÍNH XÁC: {acc * 100:.2f}%")
+    print(f" -> Thời gian dự đoán: {eval_time:.2f}s")
+    print(f" -> ĐỘ CHÍNH XÁC: {acc * 100:.2f}%")
 
     # Lưu báo cáo
     report = classification_report(y_test, y_pred, target_names=CLASS_NAMES)
@@ -122,7 +144,7 @@ def main():
         f.write(report)
         f.write(f"\nTraining Time: {train_time:.2f}s")
     
-    # 6. Vẽ Confusion Matrix
+    # 7. Vẽ Confusion Matrix
     cm = confusion_matrix(y_test, y_pred)
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Oranges', xticklabels=CLASS_NAMES, yticklabels=CLASS_NAMES)
