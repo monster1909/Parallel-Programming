@@ -32,6 +32,11 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
+
+# Training outputs
+weights/
+features.bin
 
 # Temporary files
 *.tmp

@@ -5,6 +5,7 @@
 #include "common.h"
 #include "config.h"
 #include "layers/conv2d.h"
+#include "utils/timer.h" // [FIX] Thêm dòng này
 
 struct AutoEncoder {
     Conv2D conv1, conv2, conv3, conv4, conv5;
@@ -37,7 +38,8 @@ struct AutoEncoder {
     void init();
     void free_all();
 
-    void forward_batch(const float* input_batch, float* output_batch, Activations &act, int N);
+    // [FIX] DetailedTimer đã được nhận diện
+    void forward_batch(const float* input_batch, float* output_batch, Activations &act, int N, DetailedTimer* timer = nullptr);
     void backward_batch(const float* input_batch, const float* output_batch, const float* target_batch, Activations &act, int N);
     void sgd_update(float lr, int batch_size);
     

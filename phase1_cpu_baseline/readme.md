@@ -9,6 +9,7 @@ Dự án được tối ưu hóa cho CPU sử dụng **OpenMP** để tính toá
 
 ```text
 phase1_cpu_baseline/
+├──Makefile
 ├── include/            # Các file header (.h)
 │   ├── config.h        # Cấu hình hyper-parameters (LR, Epochs,...)
 │   ├── common.h        # Các hàm tiện ích (im2col, gemm, memory)
@@ -35,15 +36,8 @@ phase1_cpu_baseline/
 Di chuyển vào thư mục `phase1_cpu_baseline` và chạy lệnh sau:
 
 ```bash
-g++ -std=c++11 -O3 -fopenmp \
-    -I./include \
-    src/*.cpp src/layers/*.cpp src/utils/*.cpp \
-    -o autoencoder
+make
 ```
-
-  * `-O3`: Tối ưu hóa tốc độ cao nhất.
-  * `-fopenmp`: Kích hoạt tính toán đa luồng.
-  * `-I./include`: Chỉ định đường dẫn thư mục header.
 
 -----
 
@@ -60,6 +54,10 @@ Dự án sử dụng bộ dữ liệu **CIFAR-10 Binary Version**.
 
 Chương trình có 2 chế độ: **Train** (Huấn luyện) và **Test** (Kiểm thử/Tái tạo ảnh).
 
+### Xem Thông Tin:
+```bash
+./autoencoder info
+```
 ### 1\. Chế độ Train (Huấn luyện)
 
 Dùng để học các đặc trưng từ dữ liệu và lưu trọng số vào file.
@@ -99,6 +97,16 @@ Dùng trọng số đã huấn luyện để nén và giải nén một ảnh đ
 ```
 
 > **Lưu ý:** Ảnh đầu vào phải là định dạng **PPM (P3)** kích thước **32x32**. Bạn có thể dùng GIMP hoặc các công cụ convert online để tạo file PPM.
+
+### 2\. Chế độ Test (Tái tạo ảnh)
+
+```bash
+./autoencoder extract <file_trọng_số> <tên_file_đầu_ra.bin> <danh sách file data>
+```
+**Ví dụ:**
+```bash
+!./autoencoder extract /content/drive/MyDrive/ckpt/weights_final_1.bin train_features.bin data/data_batch_1.bin data/data_batch_2.bin data/data_batch_3.bin data/data_batch_4.bin data/data_batch_5.bin /content/Parallel-Programming/phase1_cpu_baseline/cifar-10-batches-bin/test_batch.bin
+```
 
 -----
 
