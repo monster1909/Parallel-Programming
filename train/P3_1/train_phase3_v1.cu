@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cuda_runtime.h>
+#include <chrono>
 
 // Include utilities từ phase3
 #include "../../phase3_gpu_optimized/Include/utils/gpu_memory.h"
@@ -15,7 +16,6 @@
 // Include utilities từ train/
 #include "../include/data_loader.h"
 #include "../include/logger.h"
-#include "../../tqdm/tqdm.h"
 
 using namespace std;
 
@@ -56,7 +56,7 @@ int main() {
     const int H = 32, W = 32, C = 3;
     const int BATCH_SIZE = 32;
     const int NUM_EPOCHS = 20;
-    const float LEARNING_RATE = 0.0001f;
+    const float LEARNING_RATE = 0.001f;
     
     // Initialize data loader and logger
     DataLoader loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE);
@@ -65,11 +65,11 @@ int main() {
     logger.log_training_start(NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE);
     
     // Allocate weights (256/128 architecture - same as P2)
-    vector<float> w_conv1(256 * C * 3 * 3, 0.01f);
-    vector<float> w_conv2(128 * 256 * 3 * 3, 0.01f);
-    vector<float> w_dec1(128 * 128 * 3 * 3, 0.01f);
-    vector<float> w_dec2(256 * 128 * 3 * 3, 0.01f);
-    vector<float> w_final(C * 256 * 3 * 3, 0.01f);
+    vector<float> w_conv1(256 * C * 3 * 3, 0.001f);
+    vector<float> w_conv2(128 * 256 * 3 * 3, 0.001f);
+    vector<float> w_dec1(128 * 128 * 3 * 3, 0.001f);
+    vector<float> w_dec2(256 * 128 * 3 * 3, 0.001f);
+    vector<float> w_final(C * 256 * 3 * 3, 0.001f);
     
     // Copy weights to GPU
     float *d_w_conv1 = (float*)gpu_malloc(w_conv1.size() * sizeof(float));
@@ -114,7 +114,11 @@ int main() {
         float epoch_loss = 0.0f;
         int num_batches = 0;
         
-        tqdm progress(loader.get_num_batches(), 75, 40);
+        cout << "Training Epoch " << epoch << "/" << NUM_EPOCHS << "..." << endl;
+        auto epoch_start = chrono::high_resolution_clock::now();
+        int total_batches = loader.get_num_batches();
+        int progress_interval = total_batches / 20;  // 5% intervals
+        if (progress_interval == 0) progress_interval = 1;
         
         while (loader.has_next()) {
             float* batch_input = loader.next_batch();
@@ -175,8 +179,104 @@ int main() {
                 // MSE Loss Backward
                 mse_loss_backward(d_output, d_input, d_grad_output, C * H * W);
                 
-                // Backward through all layers (same as P2)
-                // ... (copy from P2 backward pass)
+                // Backward through Final Conv (256→3)
+                dim3 grid_final_bw_w((3+15)/16, (3+15)/16, 256*C);
+                dim3 grid_final_bw_i((W+15)/16, (H+15)/16, 256);
+                conv2d_backward_weights<<<grid_final_bw_w, block>>>(
+                    d_grad_output, d_ups2_out, d_grad_w_final,
+                    H, W, 256, H, W, C, 3
+                );
+                conv2d_backward_input<<<grid_final_bw_i, block>>>(
+                    d_grad_output, d_w_final, d_grad_ups2_out,
+                    H, W, 256, H, W, C, 3
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through Upsample2 (16×16 → 32×32)
+                dim3 grid_ups2_bw((W/2+15)/16, (H/2+15)/16, 256);
+                upsample_backward<<<grid_ups2_bw, block>>>(
+                    d_grad_ups2_out, d_grad_dec2_out, H/2, W/2, 256
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through Dec2 Conv (128→256)
+                dim3 grid_dec2_bw_w((3+15)/16, (3+15)/16, 256*128);
+                dim3 grid_dec2_bw_i((W/2+15)/16, (H/2+15)/16, 128);
+                conv2d_backward_weights<<<grid_dec2_bw_w, block>>>(
+                    d_grad_dec2_out, d_ups1_out, d_grad_w_dec2,
+                    H/2, W/2, 128, H/2, W/2, 256, 3
+                );
+                conv2d_backward_input<<<grid_dec2_bw_i, block>>>(
+                    d_grad_dec2_out, d_w_dec2, d_grad_ups1_out,
+                    H/2, W/2, 128, H/2, W/2, 256, 3
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through Upsample1 (8×8 → 16×16)
+                dim3 grid_ups1_bw((W/4+15)/16, (H/4+15)/16, 128);
+                upsample_backward<<<grid_ups1_bw, block>>>(
+                    d_grad_ups1_out, d_grad_dec1_out, H/4, W/4, 128
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through Dec1 Conv (128→128)
+                dim3 grid_dec1_bw_w((3+15)/16, (3+15)/16, 128*128);
+                dim3 grid_dec1_bw_i((W/4+15)/16, (H/4+15)/16, 128);
+                conv2d_backward_weights<<<grid_dec1_bw_w, block>>>(
+                    d_grad_dec1_out, d_pool2_out, d_grad_w_dec1,
+                    H/4, W/4, 128, H/4, W/4, 128, 3
+                );
+                conv2d_backward_input<<<grid_dec1_bw_i, block>>>(
+                    d_grad_dec1_out, d_w_dec1, d_grad_pool2_out,
+                    H/4, W/4, 128, H/4, W/4, 128, 3
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through MaxPool2 (simplified - no argmax)
+                cudaMemcpy(d_grad_conv2_out, d_grad_pool2_out, 
+                          128*(H/2)*(W/2)*sizeof(float), cudaMemcpyDeviceToDevice);
+                
+                // Backward through ReLU2
+                relu_backward<<<(128*H/2*W/2+255)/256, 256>>>(
+                    d_grad_conv2_out, d_conv2_out, d_grad_conv2_out, 128*H/2*W/2
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through Conv2 (256→128)
+                dim3 grid_conv2_bw_w((3+15)/16, (3+15)/16, 128*256);
+                dim3 grid_conv2_bw_i((W/2+15)/16, (H/2+15)/16, 256);
+                conv2d_backward_weights<<<grid_conv2_bw_w, block>>>(
+                    d_grad_conv2_out, d_pool1_out, d_grad_w_conv2,
+                    H/2, W/2, 256, H/2, W/2, 128, 3
+                );
+                conv2d_backward_input<<<grid_conv2_bw_i, block>>>(
+                    d_grad_conv2_out, d_w_conv2, d_grad_pool1_out,
+                    H/2, W/2, 256, H/2, W/2, 128, 3
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through MaxPool1 (simplified - no argmax)
+                cudaMemcpy(d_grad_conv1_out, d_grad_pool1_out,
+                          256*H*W*sizeof(float), cudaMemcpyDeviceToDevice);
+                
+                // Backward through ReLU1
+                relu_backward<<<(256*H*W+255)/256, 256>>>(
+                    d_grad_conv1_out, d_conv1_out, d_grad_conv1_out, 256*H*W
+                );
+                cudaDeviceSynchronize();
+                
+                // Backward through Conv1 (3→256)
+                dim3 grid_conv1_bw_w((3+15)/16, (3+15)/16, 256*C);
+                dim3 grid_conv1_bw_i((W+15)/16, (H+15)/16, C);
+                conv2d_backward_weights<<<grid_conv1_bw_w, block>>>(
+                    d_grad_conv1_out, d_input, d_grad_w_conv1,
+                    H, W, C, H, W, 256, 3
+                );
+                conv2d_backward_input<<<grid_conv1_bw_i, block>>>(
+                    d_grad_conv1_out, d_w_conv1, d_grad_input,
+                    H, W, C, H, W, 256, 3
+                );
+                cudaDeviceSynchronize();
                 
                 // Cleanup gradient buffers
                 gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
@@ -197,14 +297,24 @@ int main() {
             sgd_update(d_w_final, d_grad_w_final, LEARNING_RATE, w_final.size());
             
             num_batches++;
-            progress.update(num_batches, {{"loss", batch_loss}});
+            
+            // Progress display every 5%
+            if (num_batches % progress_interval == 0) {
+                auto now = chrono::high_resolution_clock::now();
+                auto elapsed = chrono::duration_cast<chrono::seconds>(now - epoch_start).count();
+                int percent = (num_batches * 100) / total_batches;
+                cout << "  " << percent << "% - Loss: " << batch_loss << " - Time: " << elapsed << "s" << endl;
+            }
         }
         
+        auto epoch_end = chrono::high_resolution_clock::now();
+        auto epoch_time = chrono::duration_cast<chrono::seconds>(epoch_end - epoch_start).count();
+        
         float avg_loss = epoch_loss / num_batches;
+        cout << "Epoch " << epoch << " complete - Avg Loss: " << avg_loss << " - Time: " << epoch_time << "s" << endl << endl;
         logger.log_epoch(epoch, avg_loss);
         
         loader.reset();
-        progress.end({{"avg_loss", avg_loss}});
     }
     
     logger.log_training_end();

@@ -6,12 +6,9 @@ NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
 # Directories
 PHASE3_V2_DIR = ../../phase3_gpu_optimized_v2
 TRAIN_DIR = ..
-TQDM_DIR = ../../tqdm
 
 # Include paths
-INCLUDES = -I$(PHASE3_V2_DIR)/Include \
-           -I$(TRAIN_DIR)/include \
-           -I$(TQDM_DIR)
+INCLUDES = -I$(PHASE3_V2_DIR)/Include -I$(TRAIN_DIR)/include
 
 # Source files
 TRAIN_SRC = train_phase3_v2.cu
@@ -31,21 +28,18 @@ TRAIN_UTILS = $(TRAIN_DIR)/src/sgd_optimizer.cu \
               $(TRAIN_DIR)/src/data_loader.cpp \
               $(TRAIN_DIR)/src/logger.cpp
 
-TQDM_SRC = $(TQDM_DIR)/tqdm.cpp
-
 # Output
 TARGET = train_phase3_v2
 
 all: $(TARGET)
 
-$(TARGET): $(TRAIN_SRC) $(PHASE3_V2_KERNELS) $(TRAIN_KERNELS) $(TRAIN_UTILS) $(TQDM_SRC)
+$(TARGET): $(TRAIN_SRC) $(PHASE3_V2_KERNELS) $(TRAIN_KERNELS) $(TRAIN_UTILS)
 	@echo "Compiling Phase 3_2 Training (Kernel Fusion + Batching)..."
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) \
 		$(TRAIN_SRC) \
 		$(PHASE3_V2_KERNELS) \
 		$(TRAIN_KERNELS) \
 		$(TRAIN_UTILS) \
-		$(TQDM_SRC) \
 		-o $(TARGET)
 	@echo "Build complete: $(TARGET)"
 
