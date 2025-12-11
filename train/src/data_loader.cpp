@@ -20,12 +20,7 @@ DataLoader::DataLoader(const string& data_dir, int batch_size, bool shuffle, boo
     
     load_cifar10_files();
     
-    // Initialize split (default: use all data)
-    split_index = total_images;  // No split by default
-    active_start = 0;
-    active_end = total_images;
-    
-    num_batches = (active_end - active_start + batch_size - 1) / batch_size;
+    num_batches = (total_images + batch_size - 1) / batch_size;
     
     // Initialize indices for shuffling
     indices.resize(total_images);
@@ -145,8 +140,8 @@ int* DataLoader::next_labels() {
 
 void DataLoader::load_batch_to_gpu(int batch_idx) {
     const int image_size = 3 * 32 * 32;
-    int start_idx = active_start + batch_idx * batch_size;  // Use active_start
-    int end_idx = min(start_idx + batch_size, active_end);  // Use active_end
+    int start_idx = batch_idx * batch_size;
+    int end_idx = min(start_idx + batch_size, total_images);
     int actual_batch_size = end_idx - start_idx;
     
     // Prepare batch on CPU
@@ -183,43 +178,6 @@ void DataLoader::reset() {
     if (shuffle) {
         shuffle_data();
     }
-}
-
-// ===== Train/Val Split Methods =====
-
-void DataLoader::set_split(float train_ratio) {
-    if (train_ratio <= 0.0f || train_ratio >= 1.0f) {
-        cerr << "[DataLoader] Warning: train_ratio must be in (0, 1). Using default 0.8" << endl;
-        train_ratio = 0.8f;
-    }
-    
-    split_index = static_cast<int>(total_images * train_ratio);
-    
-    cout << "[DataLoader] Split set: " << split_index << " train, " 
-         << (total_images - split_index) << " val" << endl;
-    
-    // Default to training split
-    use_train_split();
-}
-
-void DataLoader::use_train_split() {
-    active_start = 0;
-    active_end = split_index;
-    num_batches = (active_end - active_start + batch_size - 1) / batch_size;
-    current_batch = 0;
-    
-    cout << "[DataLoader] Using TRAIN split: " << active_start << " to " << active_end 
-         << " (" << (active_end - active_start) << " images, " << num_batches << " batches)" << endl;
-}
-
-void DataLoader::use_val_split() {
-    active_start = split_index;
-    active_end = total_images;
-    num_batches = (active_end - active_start + batch_size - 1) / batch_size;
-    current_batch = 0;
-    
-    cout << "[DataLoader] Using VAL split: " << active_start << " to " << active_end 
-         << " (" << (active_end - active_start) << " images, " << num_batches << " batches)" << endl;
 }
 
 unsigned char* DataLoader::get_batch_labels() {

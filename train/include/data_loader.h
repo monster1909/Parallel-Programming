@@ -19,11 +19,6 @@ public:
     void reset();             // Reset for next epoch
     void shuffle_data();      // Shuffle dataset
     
-    // Train/Val split (call after constructor)
-    void set_split(float train_ratio);  // e.g., 0.8 for 80% train, 20% val
-    void use_train_split();              // Use training portion
-    void use_val_split();                // Use validation portion
-    
     // Info
     int get_batch_size() const { return batch_size; }
     int get_num_batches() const { return num_batches; }
@@ -40,11 +35,6 @@ private:
     int total_images;
     bool shuffle;
     bool is_test;  // true = load test_batch.bin, false = load data_batch_*.bin
-    
-    // Train/Val split
-    int split_index;      // Index where train ends and val begins
-    int active_start;     // Start index of active split
-    int active_end;       // End index of active split (exclusive)
     
     // All data in CPU memory
     vector<float> all_images;  // [total_images, 3, 32, 32]

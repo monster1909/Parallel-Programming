@@ -211,7 +211,6 @@ int main() {
                 
                 // 7. Backward through MaxPool2
                 // Note: Need argmax from forward pass - simplified here
-                dim3 grid_pool2_bw((W/2+15)/16, (H/2+15)/16, 128);
                 // maxpool_backward<<<grid_pool2_bw, block>>>(
                 //     d_grad_pool2_out, d_pool2_argmax, d_grad_conv2_out,
                 //     H/2, W/2, H/4, W/4, 128

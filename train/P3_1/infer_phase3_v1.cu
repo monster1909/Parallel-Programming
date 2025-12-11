@@ -30,11 +30,12 @@ int main(int argc, char** argv) {
     
     const char* weight_file = argv[1];
     
-    cout << "===== Phase 2 Inference =====" << endl;
+    cout << "===== Phase 3.1 Inference =====" << endl;
     cout << "[INFO] Loading weights from: " << weight_file << endl;
     
     const int H = 32, W = 32, C = 3;
-    const int BATCH_SIZE = 10;  // Test on 10 images
+    const int BATCH_SIZE = 32;  // Process 32 images at a time
+    const int DISPLAY_COUNT = 10;  // Only display first 10
     
     // Allocate weight vectors
     vector<float> w_conv1(256 * C * 3 * 3);
@@ -87,45 +88,64 @@ int main(int argc, char** argv) {
     float *d_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
     float *d_output = (float*)gpu_malloc(C * H * W * sizeof(float));
     
-    cout << "[INFO] Running inference on " << BATCH_SIZE << " test images..." << endl;
+    int total_images = loader.get_total_images();
+    cout << "[INFO] Running inference on " << total_images << " test images..." << endl;
+    cout << "[INFO] Displaying first " << DISPLAY_COUNT << " results..." << endl << endl;
     
-    float* batch_input = loader.next_batch();
     float total_loss = 0.0f;
+    int image_count = 0;
     
-    for (int b = 0; b < BATCH_SIZE; b++) {
-        // Copy single image to device
-        gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
+    while (loader.has_next()) {
+        float* batch_input = loader.next_batch();
+        int current_batch_size = min(BATCH_SIZE, total_images - image_count);
         
-        // FORWARD PASS
-        dim3 block(16, 16);
+        for (int b = 0; b < current_batch_size; b++) {
+            // Copy single image to device
+            gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
+            
+            // FORWARD PASS
+            dim3 block(16, 16);
+            
+            // Encoder
+            conv2d<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_input, d_w_conv1, d_conv1_out, H, W, C, 256);
+            relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
+            maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
+            
+            conv2d<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_pool1_out, d_w_conv2, d_conv2_out, H/2, W/2, 256, 128);
+            relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
+            maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
+            
+            // Decoder
+            conv2d<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_pool2_out, d_w_dec1, d_dec1_out, H/4, W/4, 128, 128);
+            upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
+            conv2d<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_ups1_out, d_w_dec2, d_dec2_out, H/2, W/2, 128, 256);
+            upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
+            conv2d<<<dim3((W+15)/16, (H+15)/16, C), block>>>(d_ups2_out, d_w_final, d_output, H, W, 256, C);
+            
+            cudaDeviceSynchronize();
+            
+            // Compute reconstruction loss
+            float loss = mse_loss_forward(d_output, d_input, C * H * W);
+            total_loss += loss;
+            
+            // Display only first DISPLAY_COUNT images
+            if (image_count < DISPLAY_COUNT) {
+                cout << "Image " << (image_count+1) << "/" << total_images 
+                     << " - Reconstruction Loss: " << loss << endl;
+            }
+            
+            image_count++;
+        }
         
-        // Encoder
-        conv2d<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_input, d_w_conv1, d_conv1_out, H, W, C, 256);
-        relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
-        maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
-        
-        conv2d<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_pool1_out, d_w_conv2, d_conv2_out, H/2, W/2, 256, 128);
-        relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
-        maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
-        
-        // Decoder
-        conv2d<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_pool2_out, d_w_dec1, d_dec1_out, H/4, W/4, 128, 128);
-        upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
-        conv2d<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_ups1_out, d_w_dec2, d_dec2_out, H/2, W/2, 128, 256);
-        upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
-        conv2d<<<dim3((W+15)/16, (H+15)/16, C), block>>>(d_ups2_out, d_w_final, d_output, H, W, 256, C);
-        
-        cudaDeviceSynchronize();
-        
-        // Compute reconstruction loss
-        float loss = mse_loss_forward(d_output, d_input, C * H * W);
-        total_loss += loss;
-        
-        cout << "Image " << (b+1) << "/" << BATCH_SIZE << " - Reconstruction Loss: " << loss << endl;
+        // Progress indicator for remaining images
+        if (image_count % 1000 == 0 && image_count >= DISPLAY_COUNT) {
+            cout << "Processed " << image_count << "/" << total_images << " images..." << endl;
+        }
     }
     
-    float avg_loss = total_loss / BATCH_SIZE;
-    cout << "\n[RESULT] Average Reconstruction Loss: " << avg_loss << endl;
+    float avg_loss = total_loss / image_count;
+    cout << "\n[RESULT] Tested on " << image_count << " images" << endl;
+    cout << "[RESULT] Average Reconstruction Loss: " << avg_loss << endl;
     
     // Cleanup
     gpu_free(d_w_conv1); gpu_free(d_w_conv2); gpu_free(d_w_dec1);
