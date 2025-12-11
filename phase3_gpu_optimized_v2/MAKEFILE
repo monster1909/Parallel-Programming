@@ -1,4 +1,4 @@
-# 1. Trình biên dịch & Cờ
+git # 1. Trình biên dịch & Cờ
 # Auto-detect NVCC compiler
 NVCC := $(shell which nvcc 2>/dev/null || echo /usr/local/cuda/bin/nvcc)
 
