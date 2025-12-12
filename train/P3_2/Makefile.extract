@@ -4,7 +4,7 @@ NVCC = nvcc
 NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
 
 # Directories
-PHASE3_DIR = ../../phase3_gpu_optimized_gemm
+PHASE3_DIR = ../../phase3_gpu_optimized_v2
 TRAIN_DIR = ..
 
 # Include paths
@@ -32,6 +32,6 @@ clean:
 	@echo "Cleaned feature extraction binary"
 
 run: $(TARGET)
-	./$(TARGET) weights/phase3_v2_epoch_0.bin features.bin
+	./$(TARGET) weights/phase3_v2_epoch_5.bin features.bin
 
 .PHONY: all clean run
