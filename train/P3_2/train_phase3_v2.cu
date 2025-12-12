@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <fstream>
 #include <cuda_runtime.h>
 #include <chrono>
 #include <random>
@@ -112,20 +113,20 @@ int main() {
     float *d_grad_w_dec2 = (float*)gpu_malloc(w_dec2.size() * sizeof(float));
     float *d_grad_w_final = (float*)gpu_malloc(w_final.size() * sizeof(float));
     
-    // Allocate activation buffers
-    float *d_input = (float*)gpu_malloc(C * H * W * sizeof(float));
-    float *d_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-    float *d_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-    float *d_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-    float *d_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-    float *d_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-    float *d_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-    float *d_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-    float *d_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-    float *d_output = (float*)gpu_malloc(C * H * W * sizeof(float));
+    // Allocate activation buffers for BATCH processing
+    float *d_input = (float*)gpu_malloc(BATCH_SIZE * C * H * W * sizeof(float));
+    float *d_conv1_out = (float*)gpu_malloc(BATCH_SIZE * 256 * H * W * sizeof(float));
+    float *d_pool1_out = (float*)gpu_malloc(BATCH_SIZE * 256 * (H/2) * (W/2) * sizeof(float));
+    float *d_conv2_out = (float*)gpu_malloc(BATCH_SIZE * 128 * (H/2) * (W/2) * sizeof(float));
+    float *d_pool2_out = (float*)gpu_malloc(BATCH_SIZE * 128 * (H/4) * (W/4) * sizeof(float));
+    float *d_dec1_out = (float*)gpu_malloc(BATCH_SIZE * 128 * (H/4) * (W/4) * sizeof(float));
+    float *d_ups1_out = (float*)gpu_malloc(BATCH_SIZE * 128 * (H/2) * (W/2) * sizeof(float));
+    float *d_dec2_out = (float*)gpu_malloc(BATCH_SIZE * 256 * (H/2) * (W/2) * sizeof(float));
+    float *d_ups2_out = (float*)gpu_malloc(BATCH_SIZE * 256 * H * W * sizeof(float));
+    float *d_output = (float*)gpu_malloc(BATCH_SIZE * C * H * W * sizeof(float));
     
-    // Im2Col buffer (needed for Im2Col + GEMM)
-    size_t max_col_size = 256 * 9 * 32 * 32 * sizeof(float);
+    // Im2Col buffer for batch
+    size_t max_col_size = BATCH_SIZE * 256 * 9 * 32 * 32 * sizeof(float);
     float *d_col_buffer = (float*)gpu_malloc(max_col_size);
     
     cout << "[INFO] Memory allocated, starting training..." << endl;
@@ -150,6 +151,18 @@ int main() {
             zero_gradient(d_grad_w_dec1, w_dec1.size());
             zero_gradient(d_grad_w_dec2, w_dec2.size());
             zero_gradient(d_grad_w_final, w_final.size());
+            
+            // Allocate gradient buffers ONCE per batch (not per image)
+            float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
+            float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+            float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+            float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+            float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+            float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+            float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+            float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+            float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+            float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
             
             float batch_loss = 0.0f;
             
@@ -184,19 +197,7 @@ int main() {
                 float loss = mse_loss_forward(d_output, d_input, C * H * W);
                 batch_loss += loss;
                 
-                // BACKWARD PASS (Same as P2 - backward kernels are shared!)
-                // Allocate gradient buffers for activations
-                float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
-                float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-                float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-                float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-                float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-                float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
-                
+                // BACKWARD PASS
                 // MSE Loss Backward
                 mse_loss_backward(d_output, d_input, d_grad_output, C * H * W);
                 
@@ -298,12 +299,6 @@ int main() {
                     H, W, C, H, W, 256, 3
                 );
                 cudaDeviceSynchronize();
-                
-                // Cleanup gradient buffers
-                gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
-                gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
-                gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
-                gpu_free(d_grad_input);
             }
             
             // Average loss
@@ -311,7 +306,7 @@ int main() {
             epoch_loss += batch_loss;
             
             // CLIP GRADIENTS (prevent explosion)
-            const float MAX_GRAD_NORM = 0.5f;  // Reduced to prevent gradient explosion
+            const float MAX_GRAD_NORM = 0.1f;  // Very conservative to prevent explosion
             clip_gradients(d_grad_w_conv1, w_conv1.size(), MAX_GRAD_NORM);
             clip_gradients(d_grad_w_conv2, w_conv2.size(), MAX_GRAD_NORM);
             clip_gradients(d_grad_w_dec1, w_dec1.size(), MAX_GRAD_NORM);
@@ -324,6 +319,12 @@ int main() {
             sgd_update(d_w_dec1, d_grad_w_dec1, LEARNING_RATE, w_dec1.size());
             sgd_update(d_w_dec2, d_grad_w_dec2, LEARNING_RATE, w_dec2.size());
             sgd_update(d_w_final, d_grad_w_final, LEARNING_RATE, w_final.size());
+            
+            // Cleanup gradient buffers (once per batch)
+            gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
+            gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
+            gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
+            gpu_free(d_grad_input);
             
             num_batches++;
             
@@ -344,6 +345,31 @@ int main() {
         logger.log_epoch(epoch, avg_loss);
         
         loader.reset();
+        
+        // Save weights every epoch
+        char filename[256];
+        sprintf(filename, "weights/phase3_v2_epoch_%d.bin", epoch);
+        
+        // Copy weights from GPU to host
+        gpu_memcpy_d2h(w_conv1.data(), d_w_conv1, w_conv1.size() * sizeof(float));
+        gpu_memcpy_d2h(w_conv2.data(), d_w_conv2, w_conv2.size() * sizeof(float));
+        gpu_memcpy_d2h(w_dec1.data(), d_w_dec1, w_dec1.size() * sizeof(float));
+        gpu_memcpy_d2h(w_dec2.data(), d_w_dec2, w_dec2.size() * sizeof(float));
+        gpu_memcpy_d2h(w_final.data(), d_w_final, w_final.size() * sizeof(float));
+        
+        // Write to file
+        ofstream weight_file(filename, ios::binary);
+        if (weight_file.is_open()) {
+            weight_file.write(reinterpret_cast<const char*>(w_conv1.data()), w_conv1.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_conv2.data()), w_conv2.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_dec1.data()), w_dec1.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_dec2.data()), w_dec2.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_final.data()), w_final.size() * sizeof(float));
+            weight_file.close();
+            cout << "[INFO] Saved weights to " << filename << endl;
+        } else {
+            cerr << "[WARNING] Could not save weights to " << filename << endl;
+        }
     }
     
     logger.log_training_end();

@@ -83,5 +83,8 @@ __global__ void conv2d_backward_weights(
     }
 
     int grad_w_idx = ((c_out * C_in + c_in) * K + ky) * K + kx;
-    atomicAdd(&grad_weights[grad_w_idx], sum);
+    
+    // Direct assignment instead of atomicAdd since we process one image at a time
+    // and accumulate gradients across the batch in the training loop
+    grad_weights[grad_w_idx] += sum;
 }

@@ -292,7 +292,7 @@ int main() {
             epoch_loss += batch_loss;
             
             // CLIP GRADIENTS (prevent explosion)
-            const float MAX_GRAD_NORM = 0.5f;  // Reduced to prevent gradient explosion
+            const float MAX_GRAD_NORM = 0.1f;  // Very conservative to prevent explosion
             clip_gradients(d_grad_w_conv1, w_conv1.size(), MAX_GRAD_NORM);
             clip_gradients(d_grad_w_conv2, w_conv2.size(), MAX_GRAD_NORM);
             clip_gradients(d_grad_w_dec1, w_dec1.size(), MAX_GRAD_NORM);

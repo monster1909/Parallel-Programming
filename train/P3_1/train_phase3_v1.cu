@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <fstream>
 #include <cuda_runtime.h>
 #include <chrono>
 #include <random>
@@ -311,7 +312,7 @@ int main() {
             epoch_loss += batch_loss;
             
             // CLIP GRADIENTS (prevent explosion)
-            const float MAX_GRAD_NORM = 0.5f;  // Reduced to prevent gradient explosion
+            const float MAX_GRAD_NORM = 0.1f;  // Very conservative to prevent explosion
             clip_gradients(d_grad_w_conv1, w_conv1.size(), MAX_GRAD_NORM);
             clip_gradients(d_grad_w_conv2, w_conv2.size(), MAX_GRAD_NORM);
             clip_gradients(d_grad_w_dec1, w_dec1.size(), MAX_GRAD_NORM);
@@ -344,6 +345,31 @@ int main() {
         logger.log_epoch(epoch, avg_loss);
         
         loader.reset();
+        
+        // Save weights every epoch
+        char filename[256];
+        sprintf(filename, "weights/phase3_v1_epoch_%d.bin", epoch);
+        
+        // Copy weights from GPU to host
+        gpu_memcpy_d2h(w_conv1.data(), d_w_conv1, w_conv1.size() * sizeof(float));
+        gpu_memcpy_d2h(w_conv2.data(), d_w_conv2, w_conv2.size() * sizeof(float));
+        gpu_memcpy_d2h(w_dec1.data(), d_w_dec1, w_dec1.size() * sizeof(float));
+        gpu_memcpy_d2h(w_dec2.data(), d_w_dec2, w_dec2.size() * sizeof(float));
+        gpu_memcpy_d2h(w_final.data(), d_w_final, w_final.size() * sizeof(float));
+        
+        // Write to file
+        ofstream weight_file(filename, ios::binary);
+        if (weight_file.is_open()) {
+            weight_file.write(reinterpret_cast<const char*>(w_conv1.data()), w_conv1.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_conv2.data()), w_conv2.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_dec1.data()), w_dec1.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_dec2.data()), w_dec2.size() * sizeof(float));
+            weight_file.write(reinterpret_cast<const char*>(w_final.data()), w_final.size() * sizeof(float));
+            weight_file.close();
+            cout << "[INFO] Saved weights to " << filename << endl;
+        } else {
+            cerr << "[WARNING] Could not save weights to " << filename << endl;
+        }
     }
     
     logger.log_training_end();

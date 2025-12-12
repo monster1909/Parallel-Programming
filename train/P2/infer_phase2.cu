@@ -34,8 +34,8 @@ int main(int argc, char** argv) {
     cout << "[INFO] Loading weights from: " << weight_file << endl;
     
     const int H = 32, W = 32, C = 3;
-    const int BATCH_SIZE = 100;  // Process 100 images at a time
-    const int DISPLAY_COUNT = 10;  // Only display first 10
+    const int BATCH_SIZE = 32;  
+    const int DISPLAY_COUNT = 10;  
     
     // Allocate weight vectors
     vector<float> w_conv1(256 * C * 3 * 3);
