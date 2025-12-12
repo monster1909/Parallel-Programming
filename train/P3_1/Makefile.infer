@@ -4,7 +4,7 @@ NVCC = nvcc
 NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
 
 # Directories
-PHASE2_DIR = ../../phase2_gpu_basic
+PHASE2_DIR = ../../phase3_gpu_optimized
 TRAIN_DIR = ..
 
 # Include paths
