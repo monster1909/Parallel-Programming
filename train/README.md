@@ -1,4 +1,4 @@
-# Training Module - Quick Guide
+# Training Module 
 
 ## Phase 2 (Basic GPU)
 
@@ -66,25 +66,3 @@ make -f Makefile.infer
 make -f Makefile.extract
 ./extract_features weights/phase3_v2_epoch_0.bin features.bin
 ```
-
----
-
-## Output Files
-
-- **Weights**: `weights/phaseX_epoch_Y.bin` (~5 MB)
-- **Features**: `features.bin` (~1.9 GB)
-- **Logs**: `logs/training.log`
-
----
-
-## Hyperparameters
-
-Edit in training script (e.g., `train_phase2.cu` line 32-35):
-
-```cpp
-const int BATCH_SIZE = 32;
-const int NUM_EPOCHS = 20;
-const float LEARNING_RATE = 0.0001f;
-```
-
-Then rebuild: `make -f MAKEFILE clean && make -f MAKEFILE`

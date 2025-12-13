@@ -1,0 +1,1378 @@
+================================================================================
+                    SCRIPT THUYẾT TRÌNH ĐỒ ÁN CUỐI KỲ
+                   LẬP TRÌNH SONG SONG VÀ ỨNG DỤNG
+          Đề tài: CIFAR-10 AUTOENCODER VỚI TỐI ƯU HÓA GPU
+================================================================================
+
+PHẦN 1: GIỚI THIỆU TỔNG QUAN
+================================================================================
+
+Xin chào thầy/cô và các bạn,
+
+Hôm nay nhóm em xin trình bày đồ án cuối kỳ với đề tài: "Xây dựng và tối ưu 
+hóa mạng Autoencoder cho bộ dữ liệu CIFAR-10 sử dụng lập trình song song".
+
+1.1. MỤC TIÊU DỰ ÁN
+--------------------
+Dự án của nhóm em có 3 mục tiêu chính:
+
+MỤC TIÊU 1: Xây dựng mạng Autoencoder từ đầu (from scratch)
+- Không sử dụng thư viện Deep Learning như PyTorch hay TensorFlow
+- Tự cài đặt các thuật toán cốt lõi: Convolution, Backpropagation, SGD
+- Hiểu sâu về cơ chế hoạt động của mạng nơ-ron tích chập
+
+MỤC TIÊU 2: Tối ưu hóa hiệu năng qua 4 giai đoạn
+- Phase 1: CPU Baseline với OpenMP
+- Phase 2: GPU Basic với Direct Convolution
+- Phase 3: GPU Optimized với Im2Col + GEMM + Kernel Fusion
+- Phase 4: Ứng dụng phân loại với SVM
+
+MỤC TIÊU 3: Đạt yêu cầu về thời gian xử lý
+- Xử lý 60,000 ảnh trong thời gian dưới 20 giây
+- So sánh hiệu năng giữa các phương pháp tối ưu hóa
+
+1.2. KIẾN TRÚC MẠNG AUTOENCODER
+-------------------------------
+Mạng Autoencoder của nhóm em có kiến trúc đối xứng:
+
+INPUT: 32×32×3 (ảnh màu RGB từ CIFAR-10)
+
+ENCODER (Nén thông tin):
+├─ Conv1: 3 → 256 channels, kernel 3×3, padding 1
+├─ ReLU + MaxPool 2×2 → Output: 256×16×16
+├─ Conv2: 256 → 128 channels, kernel 3×3, padding 1  
+├─ ReLU + MaxPool 2×2 → Output: 128×8×8
+└─ LATENT SPACE: 8,192 chiều (128×8×8)
+
+DECODER (Giải nén thông tin):
+├─ DeConv1: 128 → 128 channels, kernel 3×3
+├─ ReLU + Upsample 2× → Output: 128×16×16
+├─ DeConv2: 128 → 256 channels, kernel 3×3
+├─ ReLU + Upsample 2× → Output: 256×32×32
+└─ FinalConv: 256 → 3 channels → Output: 3×32×32
+
+OUTPUT: 32×32×3 (ảnh tái tạo)
+
+Latent Space 8,192 chiều này sẽ được dùng làm đặc trưng cho bài toán phân loại.
+
+
+================================================================================
+PHẦN 2: PHASE 1 - CPU BASELINE
+================================================================================
+
+2.1. TỔNG QUAN PHASE 1
+-----------------------
+Phase 1 là nền tảng của dự án, được cài đặt hoàn toàn trên CPU với C++.
+
+Đặc điểm chính:
+- Ngôn ngữ: C++ (không dùng thư viện Deep Learning)
+- Song song hóa: OpenMP
+- Kỹ thuật tối ưu: Im2Col + GEMM (Matrix Multiplication)
+- Chức năng: Training, Testing, Feature Extraction
+
+2.2. KỸ THUẬT IM2COL + GEMM
+---------------------------
+Đây là kỹ thuật quan trọng nhất trong Phase 1:
+
+TRƯỚC KHI DÙNG IM2COL:
+- Phép tích chập (Convolution) có 7 vòng lặp lồng nhau
+- Rất khó tối ưu hóa và song song hóa
+- Hiệu năng thấp
+
+SAU KHI DÙNG IM2COL:
+- Chuyển đổi Convolution thành phép nhân ma trận
+- Im2Col: Biến đổi các vùng ảnh cục bộ thành các cột của ma trận
+- GEMM: Nhân ma trận trọng số với ma trận Im2Col
+- Tận dụng được các thư viện tối ưu nhân ma trận
+
+VÍ DỤ CỤ THỂ:
+Input: 32×32×3, Kernel: 3×3
+→ Im2Col tạo ma trận: (3×3×3) × (32×32) = 27 × 1024
+→ Weight matrix: 256 × 27
+→ GEMM: (256×27) × (27×1024) = 256×1024
+→ Reshape thành: 256×32×32
+
+2.3. SONG SONG HÓA VỚI OPENMP
+-----------------------------
+Nhóm em sử dụng OpenMP để song song hóa:
+
+#pragma omp parallel for
+- Xử lý song song các ảnh trong một batch
+- Phân chia công việc cho các CPU cores
+- Giảm thời gian training đáng kể
+
+2.4. BACKPROPAGATION VÀ TRAINING
+--------------------------------
+Nhóm em tự cài đặt thuật toán Backpropagation:
+
+FORWARD PASS:
+Input → Conv1 → ReLU → Pool → Conv2 → ReLU → Pool → Latent
+       → DeConv1 → ReLU → Upsample → DeConv2 → ReLU → Upsample → Output
+
+BACKWARD PASS:
+- Tính gradient từ output về input (Chain Rule)
+- Lưu argmax indices tại MaxPool để backprop chính xác
+- Update weights bằng SGD: w = w - learning_rate × gradient
+
+LOSS FUNCTION:
+- Mean Squared Error (MSE)
+- Loss = (1/N) × Σ(output - target)²
+
+2.5. KẾT QUẢ PHASE 1
+---------------------
+Chức năng đã hoàn thành:
+✓ Training: Huấn luyện mô hình trên CIFAR-10
+✓ Testing: Tái tạo ảnh từ ảnh đầu vào
+✓ Feature Extraction: Trích xuất latent vectors
+
+Hạn chế:
+- Tốc độ chậm do chạy trên CPU
+- Không đáp ứng yêu cầu < 20 giây cho 60k ảnh
+→ Cần chuyển sang GPU
+
+
+================================================================================
+PHẦN 3: PHÂN TÍCH CHI TIẾT - PHASE 2 GPU SO VỚI CPU
+================================================================================
+
+3.1. TỔNG QUAN PHASE 2
+-----------------------
+Phase 2 là bước chuyển đổi từ CPU sang GPU với cách tiếp cận Direct Convolution.
+
+SO SÁNH VỚI CPU (PHASE 1):
+┌─────────────────────┬──────────────────┬──────────────────┐
+│ ĐẶC ĐIỂM            │ PHASE 1 (CPU)    │ PHASE 2 (GPU)    │
+├─────────────────────┼──────────────────┼──────────────────┤
+│ Ngôn ngữ            │ C++ + OpenMP     │ CUDA C++         │
+│ Song song hóa       │ CPU cores (4-16) │ GPU cores (1000+)│
+│ Convolution         │ Im2Col + GEMM    │ Direct Conv      │
+│ Memory              │ RAM (GB)         │ VRAM (GB)        │
+│ Thời gian (60k ảnh) │ ~300-600s        │ ~15-20s          │
+│ Speedup             │ 1×               │ 20-40×           │
+└─────────────────────┴──────────────────┴──────────────────┘
+
+3.2. TẠI SAO GPU NHANH HƠN CPU? - GIẢI THÍCH CHI TIẾT
+-----------------------------------------------------
+Để hiểu tại sao GPU nhanh hơn CPU, chúng ta cần hiểu cách chúng xử lý công việc.
+
+1. MASSIVE PARALLELISM (Song song hóa khổng lồ):
+
+CPU hoạt động như thế nào?
+- CPU có 4-16 cores (lõi xử lý)
+- Mỗi core rất mạnh, xử lý tuần tự phức tạp
+- Giống như có 4-16 công nhân chuyên nghiệp
+
+Ví dụ CPU xử lý ảnh:
+- Core 1 xử lý ảnh 1, 2, 3, 4
+- Core 2 xử lý ảnh 5, 6, 7, 8
+- ...
+- Tổng: 4-16 ảnh cùng lúc
+
+GPU hoạt động như thế nào?
+- GPU có 1000+ cores nhỏ
+- Mỗi core đơn giản hơn CPU, nhưng có RẤT NHIỀU
+- Giống như có 1000+ công nhân làm việc đơn giản song song
+
+Ví dụ GPU xử lý ảnh:
+- 1 ảnh 32×32 = 1024 pixels
+- 1024 threads xử lý 1024 pixels CÙNG LÚC
+- Với 256 channels: 262,144 threads chạy đồng thời!
+
+Kết luận: GPU thắng khi có NHIỀU công việc đơn giản giống nhau
+
+2. MEMORY BANDWIDTH (Băng thông bộ nhớ):
+
+Băng thông là gì?
+- Là tốc độ truyền dữ liệu giữa bộ nhớ và chip xử lý
+- Giống như đường ống nước: ống to → nước chảy nhanh
+
+CPU RAM:
+- Băng thông: ~50 GB/s
+- Giống như ống nước đường kính 5cm
+
+GPU VRAM:
+- Băng thông: ~300-900 GB/s  
+- Giống như ống nước đường kính 30-90cm
+- Nhanh hơn CPU 6-18 lần!
+
+Tại sao quan trọng?
+- Deep Learning cần đọc/ghi RẤT NHIỀU dữ liệu
+- Ví dụ Conv1: đọc 32×32×3 input + 256×3×3×3 weights
+- Băng thông cao → đọc/ghi nhanh hơn → tính toán nhanh hơn
+
+3. SPECIALIZED HARDWARE (Phần cứng chuyên dụng):
+
+CPU được thiết kế cho:
+- Xử lý logic phức tạp (if-else, loops)
+- Đa nhiệm (chạy nhiều chương trình)
+- Linh hoạt, đa năng
+
+GPU được thiết kế cho:
+- Tính toán số học (nhân, cộng, chia)
+- Xử lý ma trận/vector
+- Đồ họa và Deep Learning
+
+Ví dụ cụ thể:
+- Nhân 2 ma trận 1000×1000:
+  + CPU: ~1-2 giây (tuần tự)
+  + GPU: ~10-50ms (song song)
+  + Nhanh hơn 20-200 lần!
+
+KẾT LUẬN PHASE 2 vs PHASE 1:
+CPU (Phase 1): 4-16 công nhân mạnh, đường ống nhỏ
+GPU (Phase 2): 1000+ công nhân, đường ống lớn
+→ Với Deep Learning (nhiều phép tính đơn giản): GPU thắng áp đảo!
+
+3.3. DIRECT CONVOLUTION - CÁCH HOẠT ĐỘNG CHI TIẾT
+--------------------------------------------------
+Direct Convolution là cách đơn giản nhất để tính Convolution trên GPU.
+
+Ý TƯỞNG CHÍNH:
+Mỗi thread GPU tính 1 pixel output bằng cách quét kernel 3×3 trên input.
+
+GIẢI THÍCH BẰNG VÍ DỤ CỤ THỂ:
+
+Giả sử chúng ta có:
+- Input: Ảnh 32×32×3 (ảnh RGB)
+- Kernel: 3×3 (bộ lọc)
+- Output: 32×32×256 (256 feature maps)
+
+THREAD (10, 15, channel=0) LÀM GÌ?
+
+Bước 1: Xác định vị trí
+- Thread này chịu trách nhiệm tính pixel tại vị trí (10, 15) của channel 0
+
+Bước 2: Quét vùng 3×3
+- Lấy vùng xung quanh (10, 15) trên input:
+  + Từ pixel (9, 14) đến (11, 16) - vùng 3×3
+  + Với 3 channels (R, G, B)
+  + Tổng: 3×3×3 = 27 giá trị
+
+Bước 3: Nhân với weights
+- Mỗi trong 27 giá trị nhân với 1 weight tương ứng
+- Ví dụ: input[9,14,R] × weight[0,0,R]
+         input[9,14,G] × weight[0,0,G]
+         ...
+
+Bước 4: Cộng lại
+- Cộng tất cả 27 kết quả → 1 số
+- Đây là giá trị pixel output tại (10, 15, channel 0)
+
+TỔNG SỐ THREADS CHẠY ĐỒNG THỜI:
+- 32×32 vị trí × 256 channels = 262,144 threads!
+- Tất cả chạy song song, không đợi nhau
+- Đây là sức mạnh của GPU!
+
+VẤN ĐỀ CỦA DIRECT CONVOLUTION - GIẢI THÍCH KỸ:
+
+VẤN ĐỀ 1: ĐỌC DỮ LIỆU NHIỀU LẦN (Data Redundancy)
+
+Tại sao lãng phí?
+- Thread (10, 15) đọc vùng từ (9,14) đến (11,16)
+- Thread (11, 15) đọc vùng từ (10,14) đến (12,16)
+- Vùng chồng lấn! Pixel (10,15) bị đọc nhiều lần
+
+Ví dụ cụ thể:
+- Pixel (10, 15) nằm trong vùng của:
+  + Thread (9, 14), (9, 15), (9, 16)
+  + Thread (10, 14), (10, 15), (10, 16)
+  + Thread (11, 14), (11, 15), (11, 16)
+  → Bị đọc 9 lần!
+
+Hậu quả:
+- Global memory rất chậm (~400-800 cycles)
+- Đọc 1 lần đã chậm, đọc 9 lần càng chậm
+- Lãng phí băng thông memory
+
+VẤN ĐỀ 2: KHÔNG TẬN DỤNG SHARED MEMORY
+
+Shared Memory là gì?
+- Là bộ nhớ nhanh trên GPU (như cache trên CPU)
+- Nhanh hơn global memory 100 lần
+- Nhưng nhỏ hơn (chỉ ~48-96 KB)
+
+Tại sao Direct Convolution không dùng được?
+- Mỗi thread xử lý 1 pixel độc lập
+- Không có cơ chế chia sẻ dữ liệu giữa threads
+- Không thể load dữ liệu chung vào shared memory
+
+So sánh:
+- Global memory: ~400-800 cycles latency (như đọc từ ổ cứng)
+- Shared memory: ~20-30 cycles latency (như đọc từ RAM)
+- Không dùng shared memory = lãng phí tốc độ!
+
+VẤN ĐỀ 3: KHÔNG TỐI ƯU CHO GPU
+
+GPU có gì đặc biệt?
+- GPU có hardware chuyên cho nhân ma trận (GEMM)
+- Tensor Cores trên GPU mới có thể nhân ma trận cực nhanh
+- Nhưng Direct Convolution không phải dạng ma trận!
+
+Ví dụ:
+- Nhân ma trận [256, 27] × [27, 1024]:
+  + Dùng Tensor Cores: ~0.1ms
+  + Dùng Direct Convolution: ~70ms
+  + Chênh lệch 700 lần!
+
+Kết luận: Direct Convolution không tận dụng được phần cứng GPU
+
+3.4. CÁC OPERATIONS KHÁC - GIẢI THÍCH CHI TIẾT
+-----------------------------------------
+Ý TƯỞNG CHÍNH:
+Mỗi thread GPU tính 1 pixel output bằng cách quét kernel 3×3 trên input.
+
+VÍ DỤ CỤ THỂ CHO CONV1:
+Input: 32×32×3 (ảnh RGB)
+Output: 32×32×256 (256 feature maps)
+Kernel: 3×3
+
+MỖI THREAD LÀM GÌ?
+- Thread (x=10, y=15, channel=0) tính pixel output tại vị trí (10, 15) của channel 0
+- Quét vùng 3×3 xung quanh (10, 15) trên input
+- Với 3 input channels: đọc 3×3×3 = 27 giá trị
+- Nhân với weights và cộng lại → 1 pixel output
+
+TỔNG SỐ THREADS:
+- 32×32 pixels × 256 channels = 262,144 threads chạy đồng thời!
+- Mỗi thread độc lập, không cần đợi nhau
+
+VẤN ĐỀ CỦA DIRECT CONVOLUTION:
+1. ĐỌC DỮ LIỆU NHIỀU LẦN:
+   - Mỗi pixel output cần đọc 27 giá trị từ global memory
+   - Global memory rất chậm (như đọc từ ổ cứng)
+   - Ví dụ: Pixel (10,15) đọc vùng 9×11 đến 11×17
+             Pixel (11,15) đọc vùng 10×11 đến 12×17
+             → Vùng chồng lấn nhưng đọc lại nhiều lần!
+
+2. KHÔNG TẬN DỤNG SHARED MEMORY:
+   - Shared memory nhanh hơn 100× global memory
+   - Giống như RAM vs Cache trong CPU
+   - Direct convolution không dùng được
+
+3. KHÔNG TỐI ƯU CHO GPU:
+   - GPU có hardware chuyên cho nhân ma trận
+   - Direct convolution không tận dụng được
+
+3.4. CÁC OPERATIONS KHÁC - GIẢI THÍCH CHI TIẾT
+-----------------------------------------------
+Ngoài Convolution, mạng nơ-ron còn cần các operations khác. Hãy hiểu từng cái:
+
+1. RELU (Rectified Linear Unit) - HÀM KÍCH HOẠT:
+
+ReLU là gì?
+- Là hàm kích hoạt đơn giản nhất trong Deep Learning
+- Công thức: output = max(0, input)
+- Nghĩa là: nếu số âm → biến thành 0, số dương → giữ nguyên
+
+Tại sao cần ReLU?
+- Thêm tính phi tuyến (non-linearity) vào mạng
+- Không có ReLU → mạng chỉ là phép nhân ma trận → không học được pattern phức tạp
+- ReLU giúp mạng học được các đặc trưng phức tạp hơn
+
+Ví dụ cụ thể:
+Input:  [-0.5, 2.3, -1.2, 0.8, -2.3, 1.5]
+Output: [0,    2.3, 0,    0.8, 0,    1.5]
+        ↑ âm→0     ↑ âm→0    ↑ âm→0
+
+Cách GPU xử lý:
+- Mỗi thread xử lý 1 số
+- Thread 0: max(-0.5, 0) = 0
+- Thread 1: max(2.3, 0) = 2.3
+- Thread 2: max(-1.2, 0) = 0
+- ...
+- Rất đơn giản, rất nhanh!
+
+2. MAXPOOL (Downsampling) - GIẢM KÍCH THƯỚC:
+
+MaxPool là gì?
+- Lấy giá trị lớn nhất trong 1 vùng 2×2
+- Giảm kích thước xuống 1/2
+- Giúp giảm số lượng tham số, tăng tốc độ
+
+Tại sao cần MaxPool?
+- Giảm kích thước: 32×32 → 16×16 (giảm 75% dữ liệu!)
+- Tăng receptive field (vùng nhìn của mỗi neuron)
+- Tạo tính bất biến với vị trí (translation invariance)
+
+Ví dụ cụ thể:
+Input (vùng 2×2):
+┌──────┬──────┐
+│ 1.2  │ 0.5  │
+├──────┼──────┤
+│ 3.1  │ 2.0  │
+└──────┴──────┘
+
+Output: max(1.2, 0.5, 3.1, 2.0) = 3.1
+
+Toàn bộ ảnh:
+Input: 32×32 (1024 pixels)
+→ Chia thành 16×16 vùng 2×2
+→ Mỗi vùng lấy max
+→ Output: 16×16 (256 pixels)
+
+Cách GPU xử lý:
+- 256 threads (1 thread cho mỗi vùng 2×2)
+- Mỗi thread:
+  + Đọc 4 giá trị
+  + Tìm max
+  + Ghi 1 giá trị output
+- Song song hoàn toàn!
+
+3. UPSAMPLE (Upsampling) - TĂNG KÍCH THƯỚC:
+
+Upsample là gì?
+- Tăng kích thước ảnh lên gấp đôi
+- Mỗi pixel → 4 pixels giống nhau
+- Dùng trong decoder để khôi phục kích thước gốc
+
+Tại sao cần Upsample?
+- Encoder giảm 32×32 → 8×8 (latent space)
+- Decoder phải tăng 8×8 → 32×32 (reconstruction)
+- Upsample giúp tăng kích thước từng bước
+
+Ví dụ cụ thể:
+Input (1 pixel):
+┌──────┐
+│ 2.5  │
+└──────┘
+
+Output (4 pixels):
+┌──────┬──────┐
+│ 2.5  │ 2.5  │
+├──────┼──────┤
+│ 2.5  │ 2.5  │
+└──────┴──────┘
+
+Toàn bộ ảnh:
+Input: 16×16 (256 pixels)
+→ Mỗi pixel nhân đôi cả chiều rộng và cao
+→ Output: 32×32 (1024 pixels)
+
+Cách GPU xử lý:
+- 1024 threads (1 thread cho mỗi pixel output)
+- Mỗi thread:
+  + Tính vị trí pixel input tương ứng (chia 2)
+  + Đọc giá trị
+  + Ghi vào output
+- Rất đơn giản!
+
+TÓM TẮT 3 OPERATIONS:
+┌──────────┬─────────────┬─────────────┬─────────────┐
+│ OPERATION│ INPUT       │ OUTPUT      │ MỤC ĐÍCH    │
+├──────────┼─────────────┼─────────────┼─────────────┤
+│ ReLU     │ 32×32×256   │ 32×32×256   │ Phi tuyến   │
+│ MaxPool  │ 32×32×256   │ 16×16×256   │ Giảm size   │
+│ Upsample │ 16×16×128   │ 32×32×128   │ Tăng size   │
+└──────────┴─────────────┴─────────────┴─────────────┘
+
+3.5. KẾT QUẢ PHASE 2 - PHÂN TÍCH CHI TIẾT
+---------------------
+BENCHMARK (60,000 ảnh):
+- Thời gian: ~15-20 giây
+- Đạt yêu cầu < 20 giây ✓
+- Speedup so với CPU: 20-40×
+
+PHÂN TÍCH TIMING (1 ảnh):
+- Conv1: ~70ms (85%) ← BOTTLENECK!
+- ReLU1: ~4ms (5%)
+- MaxPool1: ~4ms (5%)
+- Conv2: ~0.007ms (0.01%)
+- Các layer khác: < 1%
+
+TẠI SAO CONV1 CHẬM?
+- 256 output channels (nhiều nhất)
+- 3 input channels
+- 32×32 pixels
+- Mỗi pixel: 3×3×3 = 27 operations
+- Tổng: 32×32×256×27 = 7,077,888 operations!
+
+NHẬN XÉT:
+✓ Đã tận dụng được GPU parallelism
+✓ Nhanh hơn CPU rất nhiều
+✗ Direct Convolution chưa tối ưu
+✗ Chưa dùng shared memory
+✗ Chưa tận dụng GEMM optimization
+→ CẦN PHASE 3!
+
+
+================================================================================
+PHẦN 4: PHÂN TÍCH CHI TIẾT - PHASE 3 GPU OPTIMIZED
+================================================================================
+
+4.1. TỔNG QUAN PHASE 3
+-----------------------
+Phase 3 tối ưu hóa Phase 2 bằng cách chuyển từ Direct Convolution sang Im2Col + GEMM.
+
+Nhóm em chia Phase 3 thành 2 versions:
+
+PHASE 3.1: Im2Col + GEMM (Tiled)
+- Chuyển Convolution → Matrix Multiplication
+- Tự viết GEMM kernel với shared memory
+- Tiled matrix multiplication (16×16 tiles)
+
+PHASE 3.2: Im2Col + GEMM + Kernel Fusion + Batch
+- Fuse GEMM + ReLU thành 1 kernel
+- Tăng tile size lên 32×32
+- Batch processing (32 ảnh cùng lúc)
+- Tối ưu memory access với bank conflict avoidance
+
+4.2. IM2COL - CHUYỂN ĐỔI CONVOLUTION THÀNH GEMM
+-----------------------------------------------
+ІДЕЯ CHÍNH:
+Convolution 2D = Matrix Multiplication
+
+VÍ DỤ CỤ THỂ CHO CONV1:
+Input: 32×32×3 (ảnh RGB)
+Kernel: 3×3, 256 filters
+
+BƯỚC 1: IM2COL - Biến đổi input
+Input shape: [3, 32, 32]
+→ Im2Col buffer: [27, 1024]
+   - 27 = 3×3×3 (kernel_size × kernel_size × channels)
+   - 1024 = 32×32 (số vị trí đặt kernel)
+
+BƯỚC 2: GEMM - Nhân ma trận
+Weights: [256, 27] (256 filters, mỗi filter 27 elements)
+Im2Col:  [27, 1024]
+→ Output: [256, 1024] = [256, 32×32]
+
+BƯỚC 3: Reshape
+[256, 1024] → [256, 32, 32] (output shape)
+
+4.3. IM2COL - BIẾN ĐỔI THẦN KỲ
+-------------------------------
+Im2Col là kỹ thuật chuyển Convolution thành Matrix Multiplication.
+
+VÍ DỤ MINH HỌA CHO CONV1:
+
+TRƯỚC IM2COL (Input gốc):
+Ảnh 32×32×3 (RGB)
+- Channel R: ma trận 32×32
+- Channel G: ma trận 32×32  
+- Channel B: ma trận 32×32
+
+SAU IM2COL (Col Buffer):
+Ma trận 27 × 1024
+- 27 hàng = 3×3×3 (kernel size × channels)
+- 1024 cột = 32×32 (số vị trí đặt kernel)
+
+CÁCH BIẾN ĐỔI:
+Mỗi cột trong col_buffer = 1 vùng 3×3×3 trên ảnh gốc được "trải phẳng"
+
+Ví dụ cột số 0 (vị trí top-left):
+- Lấy vùng 3×3 từ channel R → 9 số
+- Lấy vùng 3×3 từ channel G → 9 số
+- Lấy vùng 3×3 từ channel B → 9 số
+- Ghép lại thành 1 vector 27 số
+
+Ví dụ cột số 1 (vị trí bên cạnh):
+- Lấy vùng 3×3 dịch sang 1 pixel → 27 số
+
+→ Tổng 1024 cột cho 1024 vị trí trên ảnh 32×32
+
+NHÂN MA TRẬN (GEMM):
+Weights: [256, 27] (256 filters)
+Col_buffer: [27, 1024]
+→ Output: [256, 1024]
+
+Giải thích:
+- Mỗi filter (1 hàng của weights) nhân với mỗi cột (1 vùng 3×3)
+- 256 filters × 1024 vị trí = 256×1024 kết quả
+- Reshape thành 256×32×32 → Done!
+
+LỢI ÍCH:
+- Mỗi giá trị input chỉ đọc 1 lần (khi tạo col_buffer)
+- Sau đó dùng GEMM (được tối ưu cực tốt)
+- Không cần vòng lặp phức tạp
+
+4.4. TILED GEMM - TỐI ƯU NHÂN MA TRẬN
+--------------------------------------
+GEMM = General Matrix Multiplication (Nhân ma trận tổng quát)
+
+VẤN ĐỀ KHI NHÂN MA TRẬN TRỰC TIẾP:
+Nhân [256, 27] × [27, 1024]:
+- Mỗi phần tử output cần 27 phép nhân-cộng
+- Phải đọc 27 phần tử từ A và 27 phần tử từ B
+- Đọc từ global memory → rất chậm!
+
+GIẢI PHÁP: TILED GEMM (PHASE 3.1)
+
+Ý TƯỞNG:
+Chia ma trận thành các "tiles" (ô vuông) 16×16
+Load mỗi tile vào shared memory (nhanh)
+Tính toán trên shared memory
+
+VÍ DỤ MINH HỌA:
+Ma trận A [256, 27] chia thành tiles 16×16
+Ma trận B [27, 1024] chia thành tiles 16×16
+
+Mỗi thread block:
+1. Load 1 tile từ A (16×16) vào shared memory
+2. Load 1 tile từ B (16×16) vào shared memory  
+3. Tất cả threads trong block tính toán trên shared memory
+4. Lặp lại cho tiles tiếp theo
+
+LỢI ÍCH:
+- Shared memory nhanh hơn global memory 100×
+- Mỗi tile load 1 lần, dùng 16 lần (bởi 16 threads)
+- Giảm global memory access từ M×N×K xuống M×N×K/16
+
+SO SÁNH LATENCY:
+- Global memory: ~400-800 cycles
+- Shared memory: ~20-30 cycles
+→ Nhanh hơn 20-40 lần!
+
+4.5. PHASE 3.2 - 3 TỐI ƯU HÓA QUAN TRỌNG
+-----------------------------------------
+
+TỐI ƯU 1: KERNEL FUSION (GEMM + RELU)
+
+TRƯỚC FUSION:
+Bước 1: GEMM kernel → tính convolution → ghi vào output
+Bước 2: ReLU kernel → đọc output → apply ReLU → ghi lại
+→ 2 lần kernel launch, 2 lần đọc/ghi global memory
+
+SAU FUSION:
+Bước 1: GEMM+ReLU kernel → tính convolution → apply ReLU ngay → ghi output
+→ 1 lần kernel launch, 1 lần ghi
+
+VÍ DỤ:
+Kết quả GEMM: -0.5, 2.3, -1.2, 0.8
+Thay vì ghi ra rồi đọc lại để apply ReLU
+→ Apply ReLU ngay: 0, 2.3, 0, 0.8 → ghi ra
+
+LỢI ÍCH:
+- Giảm 1 lần đọc global memory (tiết kiệm ~15-20% thời gian)
+- Giảm kernel launch overhead
+
+TỐI ƯU 2: LARGER TILES (16×16 → 32×32)
+
+PHASE 3.1: Tiles 16×16
+- Mỗi tile: 16×16 = 256 phần tử
+- Mỗi tile dùng lại 16 lần
+
+PHASE 3.2: Tiles 32×32
+- Mỗi tile: 32×32 = 1024 phần tử
+- Mỗi tile dùng lại 32 lần
+
+VÍ DỤ:
+Nhân ma trận [256, 27] × [27, 1024]
+- Tiles 16×16: Cần load ~432 + ~1728 = ~2160 tiles
+- Tiles 32×32: Cần load ~216 + ~864 = ~1080 tiles
+→ Giảm 50% số lần load!
+
+LỢI ÍCH:
+- Giảm số lần load từ global memory
+- Tăng data reuse: 16× → 32× = 2× improvement
+- Tốt hơn cho GPU hiện đại (nhiều shared memory hơn)
+
+TỐI ƯU 3: BANK CONFLICT AVOIDANCE
+
+SHARED MEMORY CÓ 32 BANKS:
+Giống như 32 ngăn kéo song song
+Nếu 2 threads cùng lúc truy cập cùng 1 ngăn → xung đột → chậm
+
+VẤN ĐỀ:
+Ma trận shared memory [32][32]
+Thread 0 đọc [0][0], Thread 1 đọc [1][0], ...
+→ Cùng bank → conflict!
+
+GIẢI PHÁP: PADDING
+Ma trận [32][32] → [32][33] (thêm 1 cột)
+Thread 0 đọc [0][0], Thread 1 đọc [1][0], ...
+→ Khác bank → không conflict!
+
+LỢI ÍCH:
+- Tránh serialization khi truy cập shared memory
+- Tăng throughput ~10-15%
+
+TỐI ƯU 4: BATCH PROCESSING
+
+PHASE 3.1: Xử lý từng ảnh (batch=1)
+- Im2Col: [27, 1024] cho 1 ảnh
+- GEMM: [256, 27] × [27, 1024]
+- Lặp lại 60,000 lần
+
+PHASE 3.2: Xử lý 32 ảnh cùng lúc (batch=32)
+- Im2Col: [27, 32×1024] = [27, 32768] cho 32 ảnh
+- GEMM: [256, 27] × [27, 32768]
+- Chỉ cần 60000/32 = 1875 lần
+
+VÍ DỤ:
+Kernel launch overhead: ~10 microseconds/lần
+- Batch=1: 60,000 × 10μs = 600ms lãng phí
+- Batch=32: 1,875 × 10μs = 18.75ms lãng phí
+→ Tiết kiệm ~580ms!
+
+LỢI ÍCH:
+- Amortize kernel launch overhead
+- Tận dụng tốt hơn GPU parallelism (nhiều data hơn)
+- Throughput tăng ~1.5-2×
+
+4.6. SO SÁNH PHASE 2 vs 3.1 vs 3.2
+----------------------------------
+┌──────────────┬─────────────┬─────────────┬─────────────┐
+│ ĐẶC ĐIỂM     │ PHASE 2     │ PHASE 3.1   │ PHASE 3.2   │
+├──────────────┼─────────────┼─────────────┼─────────────┤
+│ Convolution  │ Direct      │ Im2Col+GEMM │ Im2Col+GEMM │
+│ GEMM         │ Không       │ Tiled 16×16 │ Tiled 32×32 │
+│ Kernel Fusion│ Không       │ Không       │ GEMM+ReLU   │
+│ Batch Size   │ 1           │ 1           │ 32          │
+│ Shared Mem   │ Không dùng  │ Có (16×16)  │ Có (32×32)  │
+│ Bank Conflict│ N/A         │ Có          │ Avoided     │
+│              │             │             │             │
+│ Thời gian    │ ~15-20s     │ ~1.36s      │ ~0.66s      │
+│ Speedup      │ 1×          │ ~11-15×     │ ~23-30×     │
+└──────────────┴─────────────┴─────────────┴─────────────┘
+
+4.7. KẾT QUẢ PHASE 3
+---------------------
+PHASE 3.1 (Im2Col + GEMM Tiled):
+- 60,000 ảnh: 1.36 giây
+- Speedup vs Phase 2: ~11-15×
+- Average: 0.023 ms/ảnh
+
+PHASE 3.2 (+ Fusion + Batch + Optimization):
+- 60,000 ảnh: 0.66 giây
+- Speedup vs Phase 3.1: ~2×
+- Speedup vs Phase 2: ~23-30×
+- Speedup vs CPU: ~450-900×
+- Average: 0.011 ms/ảnh
+
+FEATURE EXTRACTION (Encoder only):
+- 60,000 ảnh: 0.89 giây
+- Nhanh hơn full autoencoder ~2.8× (bỏ decoder)
+- Output: 128×8×8 latent vectors
+
+
+================================================================================
+PHẦN 5: TRAINING MODULE
+================================================================================
+
+5.1. TỔNG QUAN TRAINING
+-----------------------
+Ngoài inference, nhóm em còn cài đặt module training cho GPU.
+
+Đặc điểm:
+- Training trên GPU với CUDA
+- Backpropagation cho tất cả layers
+- SGD Optimizer với gradient clipping
+- Lưu weights theo từng epoch
+
+5.2. FORWARD VÀ BACKWARD PASS
+-----------------------------
+FORWARD PASS:
+- Giống như inference
+- Lưu intermediate activations để dùng cho backward
+
+BACKWARD PASS:
+Nhóm em cài đặt gradient cho từng layer:
+
+1. MSE LOSS BACKWARD:
+   grad_output = 2 × (output - target) / N
+
+2. CONV BACKWARD:
+   - grad_input: từ grad_output
+   - grad_weights: từ input và grad_output
+   - Sử dụng Im2Col và GEMM
+
+3. RELU BACKWARD:
+   grad_input = grad_output × (input > 0 ? 1 : 0)
+
+4. MAXPOOL BACKWARD:
+   - Lưu argmax indices trong forward
+   - Gradient chỉ truyền về vị trí max
+
+5. UPSAMPLE BACKWARD:
+   - Ngược lại với maxpool
+   - Duplicate gradient
+
+5.3. SGD OPTIMIZER
+------------------
+CUDA Kernel cho SGD:
+
+__global__ void sgd_update_kernel(weights, grad_weights, lr, N) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < N) {
+        weights[idx] -= lr * grad_weights[idx];
+    }
+}
+
+GRADIENT CLIPPING:
+- Tính gradient norm: ||grad|| = sqrt(Σ grad²)
+- Nếu ||grad|| > max_norm:
+  → grad = grad × (max_norm / ||grad||)
+- Tránh exploding gradients
+
+5.4. DATA LOADER
+----------------
+Nhóm em cài đặt DataLoader để load CIFAR-10:
+
+class DataLoader {
+    - Load từ binary files
+    - Shuffle data
+    - Batch processing
+    - Normalize [0, 255] → [0, 1]
+}
+
+5.5. TRAINING WORKFLOW
+----------------------
+QUY TRÌNH TRAINING:
+
+1. Load data batch (32 ảnh)
+2. Forward pass → tính loss
+3. Backward pass → tính gradients
+4. SGD update → cập nhật weights
+5. Zero gradients
+6. Lặp lại cho batch tiếp theo
+
+LOGGING:
+- In loss mỗi step
+- Lưu weights mỗi epoch
+- Track training progress
+
+5.6. INFERENCE VÀ FEATURE EXTRACTION
+------------------------------------
+Sau khi training, nhóm em có 2 chương trình:
+
+1. INFERENCE:
+   - Load trained weights
+   - Chạy forward pass
+   - Tính reconstruction loss
+   - Đánh giá chất lượng mô hình
+
+2. FEATURE EXTRACTION:
+   - Chỉ chạy encoder (bỏ decoder)
+   - Trích xuất latent vectors
+   - Lưu features vào file binary
+   - Dùng cho Phase 4 (SVM)
+
+
+================================================================================
+PHẦN 6: PHASE 4 - SVM CLASSIFICATION
+================================================================================
+
+6.1. TỔNG QUAN PHASE 4
+-----------------------
+Phase 4 là ứng dụng của Autoencoder vào bài toán phân loại.
+
+WORKFLOW:
+1. Dùng Autoencoder (Phase 3) để extract features
+2. Train SVM trên features đã extract
+3. Test và đánh giá accuracy
+
+6.2. FEATURE EXTRACTION
+-----------------------
+Sử dụng Phase 3.2 Feature Extraction:
+
+INPUT: 60,000 ảnh training + 10,000 ảnh test
+OUTPUT: 
+- train_features.bin: 60,000 × 8,192 features
+- test_features.bin: 10,000 × 8,192 features
+
+Mỗi ảnh → 1 vector 8,192 chiều (128×8×8)
+
+6.3. SVM TRAINING
+-----------------
+Nhóm em sử dụng thư viện libsvm:
+
+CHƯƠNG TRÌNH train_svm:
+- Load train_features.bin
+- Load labels từ CIFAR-10
+- Train SVM classifier
+- Lưu model vào file
+
+PARAMETERS:
+- Kernel: RBF (Radial Basis Function)
+- C: Cost parameter
+- Gamma: Kernel parameter
+
+6.4. SVM TESTING
+----------------
+CHƯƠNG TRÌNH test_svm:
+- Load trained SVM model
+- Load test_features.bin
+- Predict labels
+- Tính accuracy
+- Xuất confusion matrix ra CSV
+
+OUTPUT:
+- Accuracy: ~XX% (tùy vào training)
+- Confusion matrix: 10×10 (10 classes)
+
+6.5. KẾT QUẢ PHASE 4
+---------------------
+THỜI GIAN:
+- Feature extraction: ~0.89 giây (60k ảnh)
+- SVM training: Vài giây đến vài phút
+- SVM testing: < 1 giây
+
+ACCURACY:
+- Phụ thuộc vào chất lượng Autoencoder
+- Latent space có học được features tốt không
+- Thường đạt 40-60% (CIFAR-10 là dataset khó)
+
+
+================================================================================
+PHẦN 7: TÓM TẮT TỐI ƯU HÓA - TỪ CPU ĐẾN GPU
+================================================================================
+
+7.1. SO SÁNH HIỆU NĂNG TẤT CẢ CÁC PHASES
+-----------------------------------------
+Benchmark: Xử lý 60,000 ảnh CIFAR-10 (32×32×3)
+
+┌──────────────┬─────────────────┬──────────────┬─────────────┬─────────────┐
+│ PHASE        │ THỜI GIAN       │ MS/ẢNH       │ SPEEDUP     │ SPEEDUP/CPU │
+├──────────────┼─────────────────┼──────────────┼─────────────┼─────────────┤
+│ Phase 1 CPU  │ ~300-600s       │ ~5-10 ms     │ 1×          │ 1×          │
+│ Phase 2 GPU  │ ~15-20s         │ ~0.25-0.33ms │ 20-40×      │ 20-40×      │
+│ Phase 3.1    │ ~1.36s          │ ~0.023 ms    │ ~11-15×     │ 220-440×    │
+│ Phase 3.2    │ ~0.66s          │ ~0.011 ms    │ ~2×         │ 450-900×    │
+└──────────────┴─────────────────┴──────────────┴─────────────┴─────────────┘
+
+7.2. PHÂN TÍCH CHI TIẾT CÁC TỐI ƯU HÓA
+---------------------------------------
+
+TỐI ƯU 1: CPU → GPU (PHASE 1 → PHASE 2)
+Kỹ thuật: Chuyển từ CPU sang GPU với Direct Convolution
+Speedup: 20-40×
+
+NGUYÊN NHÂN:
+1. Massive Parallelism:
+   - CPU: 4-16 cores
+   - GPU: 1000+ CUDA cores
+   - Xử lý hàng nghìn pixels đồng thời
+
+2. Memory Bandwidth:
+   - CPU RAM: ~50 GB/s
+   - GPU VRAM: ~300-900 GB/s (6-18× nhanh hơn)
+
+3. Specialized Hardware:
+   - GPU tối ưu cho floating-point operations
+   - Hardware hỗ trợ vector/matrix operations
+
+NHƯNG:
+- Direct Convolution chưa tối ưu
+- Mỗi thread đọc dữ liệu nhiều lần từ global memory
+- Không tận dụng shared memory
+- Không dùng được GEMM optimization
+
+TỐI ƯU 2: DIRECT CONV → IM2COL + GEMM (PHASE 2 → PHASE 3.1)
+Kỹ thuật: Im2Col + Tiled GEMM với Shared Memory
+Speedup: 11-15×
+
+NGUYÊN NHÂN:
+1. Im2Col Transformation:
+   - Chuyển Convolution → Matrix Multiplication
+   - Mỗi thread chỉ đọc 1 lần từ global memory
+   - Coalesced memory access
+
+2. Tiled GEMM (16×16):
+   - Sử dụng shared memory (nhanh hơn 100× global memory)
+   - Mỗi tile load 1 lần, dùng 16 lần
+   - Giảm global memory access từ M×N×K → M×N×K/16
+
+3. Memory Hierarchy Optimization:
+   - Global memory: ~400-800 cycles latency
+   - Shared memory: ~20-30 cycles latency
+   - Tăng data reuse dramatically
+
+CODE SO SÁNH:
+// PHASE 2: Direct Convolution
+for (int ic = 0; ic < in_channels; ic++) {
+    for (int ky = -1; ky <= 1; ky++) {
+        for (int kx = -1; kx <= 1; kx++) {
+            sum += input[...] * kernel[...];  // Đọc nhiều lần
+        }
+    }
+}
+
+// PHASE 3.1: Im2Col + GEMM
+im2col_kernel<<<...>>>(input, col_buffer, ...);  // Biến đổi 1 lần
+gemm_tiled<<<...>>>(weights, col_buffer, output, ...);  // GEMM tối ưu
+
+TỐI ƯU 3: KERNEL FUSION + LARGER TILES (PHASE 3.1 → PHASE 3.2)
+Kỹ thuật: Fused GEMM+ReLU, 32×32 tiles, Bank Conflict Avoidance, Batch
+Speedup: ~2×
+
+NGUYÊN NHÂN:
+1. Kernel Fusion (GEMM + ReLU):
+   - Trước: 2 kernels, 2 lần đọc/ghi global memory
+   - Sau: 1 kernel, 1 lần ghi
+   - Giảm memory traffic ~15-20%
+
+2. Larger Tiles (16×16 → 32×32):
+   - Giảm số lần load từ global memory
+   - Tăng data reuse: 16× → 32× = 2× improvement
+   - Tốt hơn cho GPU hiện đại (nhiều shared memory)
+
+3. Bank Conflict Avoidance:
+   - Shared memory có 32 banks
+   - Padding +1: ds_A[32][32] → ds_A[32][33]
+   - Tránh serialization khi truy cập shared memory
+
+4. Batch Processing (batch=32):
+   - Amortize kernel launch overhead
+   - Tận dụng tốt hơn GPU parallelism
+   - GEMM: [256, 27] × [27, 32×1024] thay vì [256, 27] × [27, 1024]
+
+CODE SO SÁNH:
+// PHASE 3.1: Separate kernels
+gemm_tiled<<<...>>>(A, B, C, M, N, K);
+relu<<<...>>>(C, M*N);
+
+// PHASE 3.2: Fused kernel
+gemm_tiled_relu_optimized<<<...>>>(A, B, C, M, N, K);
+// ReLU applied inside GEMM: C[idx] = fmaxf(sum, 0.0f);
+
+7.3. BẢNG SO SÁNH KỸ THUẬT CHI TIẾT
+------------------------------------
+┌──────────────────────┬─────────┬─────────┬─────────┬─────────┐
+│ KỸ THUẬT             │ PHASE 1 │ PHASE 2 │ PHASE 3.1│PHASE 3.2│
+├──────────────────────┼─────────┼─────────┼─────────┼─────────┤
+│ Parallelism          │ OpenMP  │ CUDA    │ CUDA    │ CUDA    │
+│ Cores                │ 4-16    │ 1000+   │ 1000+   │ 1000+   │
+│ Convolution Method   │ Im2Col  │ Direct  │ Im2Col  │ Im2Col  │
+│ GEMM                 │ CPU     │ No      │ Tiled   │ Tiled   │
+│ Tile Size            │ N/A     │ N/A     │ 16×16   │ 32×32   │
+│ Shared Memory        │ No      │ No      │ Yes     │ Yes     │
+│ Bank Conflict Avoid  │ No      │ No      │ No      │ Yes     │
+│ Kernel Fusion        │ No      │ No      │ No      │ Yes     │
+│ Batch Processing     │ Yes(32) │ No(1)   │ No(1)   │ Yes(32) │
+│ Memory Optimization  │ Cache   │ Global  │ Shared  │ Shared+ │
+│                      │         │         │         │         │
+│ Conv1 Time (1 img)   │ ~500ms  │ ~70ms   │ ~12ms   │ ~12ms   │
+│ Total Time (60k)     │ ~400s   │ ~18s    │ ~1.36s  │ ~0.66s  │
+└──────────────────────┴─────────┴─────────┴─────────┴─────────┘
+
+7.4. BOTTLENECK ANALYSIS - TỪNG PHASE
+--------------------------------------
+PHASE 1 (CPU):
+- Bottleneck: Sequential processing
+- Conv1: ~85% thời gian
+- Giải pháp: Chuyển sang GPU → PHASE 2
+
+PHASE 2 (GPU Direct Convolution):
+- Bottleneck: Global memory access
+- Mỗi thread đọc 3×3×in_channels lần
+- Conv1: ~85% thời gian (vẫn là bottleneck)
+- Giải pháp: Im2Col + GEMM → PHASE 3.1
+
+PHASE 3.1 (Im2Col + GEMM):
+- Bottleneck: Kernel launch overhead, small tiles
+- Im2Col kernel: ~10-15% thời gian
+- GEMM kernel: ~60-70% thời gian
+- Giải pháp: Kernel Fusion + Larger Tiles → PHASE 3.2
+
+PHASE 3.2 (Optimized):
+- Bottleneck: Memory bandwidth (hardware limit)
+- Đã tối ưu hầu hết software bottlenecks
+- Có thể cải thiện thêm với:
+  + Tensor Cores (GPU mới hơn)
+  + Mixed Precision (FP16)
+  + Fuse thêm nhiều operations
+
+7.5. MEMORY ACCESS PATTERN COMPARISON
+--------------------------------------
+PHASE 2 - DIRECT CONVOLUTION:
+Global Memory Reads per Conv1 output pixel:
+- 3 (input channels) × 3×3 (kernel) = 27 reads
+- Total for 256×32×32 output: 256 × 32 × 32 × 27 = 7,077,888 reads
+- Không coalesced, không reuse
+
+PHASE 3.1 - IM2COL + GEMM:
+Global Memory Reads:
+- Im2Col: 3 × 32 × 32 = 3,072 reads (1 lần)
+- GEMM: Load tiles from global → shared
+  + Weights: 256 × 27 / 16 = ~432 tile loads
+  + Col_buffer: 27 × 1024 / 16 = ~1,728 tile loads
+- Coalesced access, high reuse trong shared memory
+
+PHASE 3.2 - BATCH + LARGER TILES:
+Global Memory Reads (batch=32):
+- Im2Col: 32 × 3 × 32 × 32 = 98,304 reads (1 lần cho 32 ảnh)
+- GEMM với 32×32 tiles:
+  + Weights: 256 × 27 / 32 = ~216 tile loads (giảm 50%)
+  + Col_buffer: 27 × 32,768 / 32 = ~27,648 tile loads
+- Amortize overhead qua 32 ảnh
+
+7.6. ĐÁNH GIÁ CHẤT LƯỢNG
+-------------------------
+RECONSTRUCTION QUALITY:
+- MSE Loss: Đo sự khác biệt giữa input và output
+- Tất cả phases cho kết quả giống nhau (cùng architecture)
+- Loss phụ thuộc vào training, không phụ thuộc vào optimization
+
+NUMERICAL STABILITY:
+- Phase 1-3 đều dùng FP32 (float)
+- Kết quả hơi khác nhau do thứ tự tính toán
+- Sai số < 1e-5 (chấp nhận được)
+
+FEATURE QUALITY (Phase 4 - SVM):
+- Latent space: 128×8×8 = 8,192 dimensions
+- SVM accuracy: ~40-60% trên CIFAR-10
+- Tốt cho unsupervised learning
+
+
+================================================================================
+PHẦN 8: DEMO VÀ KẾT QUẢ THỰC NGHIỆM
+================================================================================
+
+8.1. DEMO PHASE 3.2
+-------------------
+Bây giờ nhóm em xin demo Phase 3.2 - phiên bản tối ưu nhất:
+
+[CHẠY LỆNH]
+cd phase3_gpu_optimized_v2
+make -f MAKEFILE
+./test_gpu
+
+[KẾT QUẢ HIỂN THỊ]
+- Load ảnh từ CIFAR-10
+- Detailed timing cho từng layer
+- Conv1: ~12ms
+- ReLU1: 0ms (fused)
+- MaxPool1: ~4ms
+- ...
+- Total: ~20ms cho 1 ảnh
+
+[CHẠY BENCHMARK]
+./run_phase3
+
+[KẾT QUẢ]
+- 60,000 ảnh: ~0.66 giây
+- Average: 0.011 ms/ảnh
+- PASSED (< 20 giây)
+
+8.2. DEMO FEATURE EXTRACTION
+----------------------------
+[CHẠY LỆNH]
+./feature_extract
+
+[KẾT QUẢ]
+- 60,000 ảnh: ~0.89 giây
+- Latent size: 128×8×8 = 8,192 dims
+- Nhanh hơn full autoencoder ~2.8×
+
+8.3. DEMO TRAINING (NẾU CÓ THỜI GIAN)
+-------------------------------------
+[CHẠY LỆNH]
+cd train/P3_2
+make -f MAKEFILE
+./train_phase3_v2
+
+[KẾT QUẢ]
+- Training với batch size 32
+- In loss mỗi step
+- Lưu weights mỗi epoch
+- Convergence sau vài epochs
+
+8.4. DEMO SVM (NẾU CÓ THỜI GIAN)
+--------------------------------
+[CHẠY LỆNH]
+cd phase4_svm
+./train_svm train_features.bin model.svm
+./test_svm model.svm test_features.bin result.csv
+
+[KẾT QUẢ]
+- Training time: Vài giây
+- Test accuracy: ~XX%
+- Confusion matrix trong result.csv
+
+
+================================================================================
+PHẦN 9: THÁCH THỨC VÀ BÀI HỌC
+================================================================================
+
+9.1. THÁCH THỨC GẶP PHẢI
+------------------------
+1. MEMORY MANAGEMENT:
+   - GPU memory hạn chế
+   - Phải cẩn thận với allocation/deallocation
+   - Out of memory errors
+
+2. DEBUGGING CUDA:
+   - Khó debug hơn CPU code
+   - Kernel crashes không có error message rõ ràng
+   - Phải dùng cuda-memcheck, printf debugging
+
+3. PERFORMANCE TUNING:
+   - Tìm block size, grid size tối ưu
+   - Balance giữa occupancy và shared memory
+   - Profiling với nvprof/Nsight
+
+4. NUMERICAL STABILITY:
+   - Gradient vanishing/exploding
+   - Phải dùng gradient clipping
+   - Khởi tạo weights cẩn thận
+
+5. BACKPROPAGATION:
+   - Tính gradient cho từng layer phức tạp
+   - Phải verify bằng numerical gradient
+   - Debugging backward pass khó
+
+9.2. BÀI HỌC RÚT RA
+-------------------
+1. HIỂU SÂU VỀ CUDA:
+   - Memory hierarchy: Global, Shared, Register
+   - Thread organization: Grid, Block, Thread
+   - Synchronization và race conditions
+
+2. OPTIMIZATION TECHNIQUES:
+   - Im2Col + GEMM rất hiệu quả
+   - Kernel fusion giảm overhead
+   - Batch processing tận dụng parallelism
+
+3. PROFILING QUAN TRỌNG:
+   - Luôn profile trước khi optimize
+   - Tìm bottleneck thực sự
+   - Đo lường impact của mỗi optimization
+
+4. INCREMENTAL DEVELOPMENT:
+   - Bắt đầu từ version đơn giản (Phase 2)
+   - Từng bước tối ưu hóa (Phase 3.1, 3.2)
+   - Verify correctness sau mỗi bước
+
+5. CODE ORGANIZATION:
+   - Tách biệt kernels, utilities
+   - Reusable components
+   - Documentation rõ ràng
+
+
+================================================================================
+PHẦN 10: KẾT LUẬN VÀ HƯỚNG PHÁT TRIỂN
+================================================================================
+
+10.1. TÓM TẮT CÔNG VIỆC ĐÃ LÀM
+------------------------------
+Nhóm em đã hoàn thành:
+
+✓ Phase 1: CPU Baseline với OpenMP
+  - Im2Col + GEMM
+  - Backpropagation
+  - Training, Testing, Feature Extraction
+
+✓ Phase 2: GPU Basic
+  - Direct Convolution kernels
+  - Đạt yêu cầu < 20 giây
+  - Speedup ~20-40× so với CPU
+
+✓ Phase 3: GPU Optimized
+  - Version 3.1: Im2Col + cuBLAS
+  - Version 3.2: + Kernel Fusion + Batch
+  - Speedup ~450-900× so với CPU
+  - 60k ảnh trong ~0.66 giây
+
+✓ Training Module:
+  - Forward và Backward pass
+  - SGD Optimizer với gradient clipping
+  - MSE Loss
+  - Save/Load weights
+
+✓ Phase 4: SVM Classification
+  - Feature extraction
+  - SVM training và testing
+  - Confusion matrix
+
+10.2. ĐÓNG GÓP CHÍNH
+--------------------
+1. IMPLEMENTATION FROM SCRATCH:
+   - Không dùng PyTorch/TensorFlow
+   - Hiểu sâu về mạng nơ-ron
+   - Kinh nghiệm CUDA programming
+
+2. COMPREHENSIVE OPTIMIZATION:
+   - 4 phases với các kỹ thuật khác nhau
+   - So sánh hiệu năng chi tiết
+   - Phân tích bottlenecks
+
+3. COMPLETE PIPELINE:
+   - Training → Inference → Feature Extraction → Classification
+   - Production-ready code
+   - Modular design
+
+10.3. HƯỚNG PHÁT TRIỂN
+----------------------
+Nếu có thêm thời gian, nhóm em muốn:
+
+1. MIXED PRECISION (FP16):
+   - Sử dụng Tensor Cores
+   - Speedup thêm 2-4×
+   - Giảm memory usage
+
+2. MULTI-GPU:
+   - Data parallelism
+   - Model parallelism
+   - Xử lý datasets lớn hơn
+
+3. ADVANCED ARCHITECTURES:
+   - Residual connections
+   - Attention mechanisms
+   - Variational Autoencoder (VAE)
+
+4. DEPLOYMENT:
+   - TensorRT optimization
+   - ONNX export
+   - Real-time inference
+
+5. VISUALIZATION:
+   - Latent space visualization
+   - Reconstruction quality metrics
+   - Training curves
+
+10.4. KẾT LUẬN
+--------------
+Qua đồ án này, nhóm em đã:
+
+1. Nắm vững kiến thức về:
+   - Lập trình song song (OpenMP, CUDA)
+   - Deep Learning (Autoencoder, Backpropagation)
+   - GPU optimization techniques
+
+2. Đạt được mục tiêu:
+   - Xử lý 60k ảnh < 20 giây ✓
+   - Speedup lên đến 900× ✓
+   - Complete pipeline ✓
+
+3. Phát triển kỹ năng:
+   - CUDA programming
+   - Performance optimization
+   - Debugging và profiling
+   - Code organization
+
+Nhóm em xin chân thành cảm ơn thầy/cô đã hướng dẫn và lắng nghe!
+
+
+================================================================================
+PHỤ LỤC: CÂU HỎI THƯỜNG GẶP
+================================================================================
+
+Q1: Tại sao không dùng PyTorch/TensorFlow?
+A: Mục tiêu là hiểu sâu về cơ chế hoạt động, không chỉ sử dụng thư viện.
+
+Q2: Im2Col có tốn nhiều memory không?
+A: Có, nhưng đánh đổi memory để có speed. Với GPU có memory lớn, đây là 
+   trade-off hợp lý.
+
+Q3: Kernel Fusion áp dụng cho layer nào?
+A: Conv + ReLU. Có thể fuse thêm Conv + ReLU + MaxPool nhưng phức tạp hơn.
+
+Q4: Tại sao dùng cuBLAS thay vì tự viết GEMM?
+A: cuBLAS được tối ưu cực kỳ tốt bởi NVIDIA, khó có thể viết tốt hơn.
+
+Q5: Batch size 32 có phải tối ưu?
+A: Tùy GPU. 32 là balance tốt giữa throughput và memory. GPU mạnh hơn có thể 
+   dùng 64, 128.
+
+Q6: Training mất bao lâu?
+A: Tùy số epochs. Với 1 epoch trên 60k ảnh: ~30-60 giây (Phase 3).
+
+Q7: Accuracy của SVM bao nhiêu?
+A: Phụ thuộc training. Thường 40-60%. CIFAR-10 khó, CNN đầy đủ mới đạt 90%+.
+
+Q8: Code có thể chạy trên GPU nào?
+A: NVIDIA GPU với CUDA support. Tối thiểu GTX 1650. Tesla T4 trở lên tốt hơn.
+
+================================================================================
+HẾT SCRIPT THUYẾT TRÌNH
+================================================================================

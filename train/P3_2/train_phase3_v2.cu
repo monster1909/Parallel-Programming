@@ -30,11 +30,17 @@ void im2col_gpu(const float* data_im, float* data_col,
 
 extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C, 
                                       int M, int N, int K);
+extern "C" __global__ void gemm_tiled_optimized(const float* A, const float* B, float* C, 
+                                                int M, int N, int K);
+extern "C" __global__ void gemm_tiled_relu(const float* A, const float* B, float* C, 
+                                           int M, int N, int K);
+extern "C" __global__ void gemm_tiled_relu_optimized(const float* A, const float* B, float* C, 
+                                                     int M, int N, int K);
 extern "C" __global__ void relu(float* x, int size);
 extern "C" __global__ void maxpool(const float* input, float* output, int H, int W, int C);
 extern "C" __global__ void upsample(const float* input, float* output, int H, int W, int C);
 
-// Helper function for Im2Col + GEMM convolution
+// Helper function for Im2Col + GEMM convolution (basic 16x16)
 void forward_conv_layer(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
                         int H, int W, int C_in, int C_out) 
 {
@@ -50,6 +56,44 @@ void forward_conv_layer(const float* d_input, const float* d_weights, float* d_o
     dim3 dimGrid((N + 15)/16, (M + 15)/16);
     dim3 dimBlock(16, 16);
     gemm_tiled<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
+}
+
+// OPTIMIZED: Im2Col + GEMM with 32x32 tiles
+void forward_conv_layer_optimized(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
+                                  int H, int W, int C_in, int C_out) 
+{
+    int ksize = 3, pad = 1, stride = 1;
+    int H_out = H, W_out = W;
+
+    im2col_gpu(d_input, d_col_buffer, 1, C_in, H, W, ksize, pad, stride, H_out, W_out);
+
+    int M = C_out;
+    int N = H_out * W_out;
+    int K = C_in * ksize * ksize;
+
+    // Use 32x32 tiles for better performance
+    dim3 dimGrid((N + 31)/32, (M + 31)/32);
+    dim3 dimBlock(32, 32);
+    gemm_tiled_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
+}
+
+// FUSED: Im2Col + GEMM + ReLU with 32x32 tiles (saves kernel launch)
+void forward_conv_layer_fused_relu(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
+                                    int H, int W, int C_in, int C_out) 
+{
+    int ksize = 3, pad = 1, stride = 1;
+    int H_out = H, W_out = W;
+
+    im2col_gpu(d_input, d_col_buffer, 1, C_in, H, W, ksize, pad, stride, H_out, W_out);
+
+    int M = C_out;
+    int N = H_out * W_out;
+    int K = C_in * ksize * ksize;
+
+    // Use 32x32 tiles + fused ReLU
+    dim3 dimGrid((N + 31)/32, (M + 31)/32);
+    dim3 dimBlock(32, 32);
+    gemm_tiled_relu_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 
 // Xavier/Glorot initialization helper with fixed seed
@@ -174,22 +218,22 @@ int main() {
                 // FORWARD PASS (using phase3 Im2Col + GEMM)
                 dim3 block(16, 16);
                 
-                // Conv1 + ReLU + MaxPool (Im2Col + GEMM)
-                forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
-                relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
+                // Conv1 + FUSED ReLU + MaxPool (Im2Col + GEMM + ReLU fused)
+                forward_conv_layer_fused_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
+                // ReLU is fused in GEMM kernel - no separate call needed!
                 maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
                 
-                // Conv2 + ReLU + MaxPool
-                forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
-                relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
+                // Conv2 + FUSED ReLU + MaxPool
+                forward_conv_layer_fused_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
+                // ReLU is fused in GEMM kernel - no separate call needed!
                 maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
                 
-                // Decoder: Dec1 + Upsample + Dec2 + Upsample + Final
-                forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
+                // Decoder: Dec1 + Upsample + Dec2 + Upsample + Final (use optimized 32x32)
+                forward_conv_layer_optimized(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
                 upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
-                forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
+                forward_conv_layer_optimized(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
                 upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
-                forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
+                forward_conv_layer_optimized(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
                 
                 cudaDeviceSynchronize();
                 

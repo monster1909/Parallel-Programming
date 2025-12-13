@@ -129,6 +129,18 @@ int main() {
     size_t max_col_size = 256 * 9 * 32 * 32 * sizeof(float);
     float *d_col_buffer = (float*)gpu_malloc(max_col_size);
     
+    // Allocate gradient buffers ONCE (outside training loop) - CRITICAL FIX!
+    float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
+    float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+    float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+    float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+    float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+    float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
+    
     cout << "[INFO] Memory allocated, starting training..." << endl;
     
     // Training loop
@@ -186,17 +198,8 @@ int main() {
                 batch_loss += loss;
                 
                 // BACKWARD PASS (Same as P2 - backward kernels are shared!)
-                // Allocate gradient buffers for activations
-                float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
-                float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-                float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-                float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-                float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-                float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
+                // Note: Gradient buffers already allocated outside training loop
+                
                 
                 // MSE Loss Backward
                 mse_loss_backward(d_output, d_input, d_grad_output, C * H * W);
@@ -299,12 +302,6 @@ int main() {
                     H, W, C, H, W, 256, 3
                 );
                 cudaDeviceSynchronize();
-                
-                // Cleanup gradient buffers
-                gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
-                gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
-                gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
-                gpu_free(d_grad_input);
             }
             
             // Average loss
@@ -383,6 +380,12 @@ int main() {
     gpu_free(d_conv2_out); gpu_free(d_pool2_out); gpu_free(d_dec1_out);
     gpu_free(d_ups1_out); gpu_free(d_dec2_out); gpu_free(d_ups2_out);
     gpu_free(d_output); gpu_free(d_col_buffer);
+    
+    // Cleanup gradient buffers
+    gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
+    gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
+    gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
+    gpu_free(d_grad_input);
     
     cout << "===== Training Complete =====" << endl;
     return 0;
