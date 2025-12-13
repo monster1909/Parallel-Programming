@@ -8,7 +8,10 @@ using namespace std;
 
 class DataLoader {
 public:
-    DataLoader(const string& data_dir, int batch_size, bool shuffle = true, bool is_test = false);
+    // Constructor with optional class filtering
+    // selected_classes: vector of class IDs to include (0-9). Empty = all classes
+    DataLoader(const string& data_dir, int batch_size, bool shuffle = true, bool is_test = false,
+               const vector<int>& selected_classes = vector<int>());
     ~DataLoader();
     
     // Batch iteration
@@ -23,10 +26,12 @@ public:
     int get_batch_size() const { return batch_size; }
     int get_num_batches() const { return num_batches; }
     int get_total_images() const { return total_images; }
+    vector<int> get_selected_classes() const { return selected_classes; }
     
 private:
     void load_cifar10_files();
     void load_batch_to_gpu(int batch_idx);
+    bool is_class_selected(int label) const;
     
     string data_dir;
     int batch_size;
@@ -35,6 +40,7 @@ private:
     int total_images;
     bool shuffle;
     bool is_test;  // true = load test_batch.bin, false = load data_batch_*.bin
+    vector<int> selected_classes;  // Classes to include (empty = all)
     
     // All data in CPU memory
     vector<float> all_images;  // [total_images, 3, 32, 32]

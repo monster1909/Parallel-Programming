@@ -8,14 +8,27 @@
 
 using namespace std;
 
-DataLoader::DataLoader(const string& data_dir, int batch_size, bool shuffle, bool is_test)
+DataLoader::DataLoader(const string& data_dir, int batch_size, bool shuffle, bool is_test,
+                       const vector<int>& selected_classes)
     : data_dir(data_dir), batch_size(batch_size), shuffle(shuffle), is_test(is_test),
-      current_batch(0), d_batch_images(nullptr), d_batch_labels(nullptr)
+      current_batch(0), d_batch_images(nullptr), d_batch_labels(nullptr),
+      selected_classes(selected_classes)
 {
     if (is_test) {
         cout << "[DataLoader] Loading CIFAR-10 TEST dataset from: " << data_dir << endl;
     } else {
         cout << "[DataLoader] Loading CIFAR-10 TRAIN dataset from: " << data_dir << endl;
+    }
+    
+    if (!selected_classes.empty()) {
+        cout << "[DataLoader] Filtering to " << selected_classes.size() << " classes: ";
+        for (size_t i = 0; i < selected_classes.size(); i++) {
+            cout << selected_classes[i];
+            if (i < selected_classes.size() - 1) cout << ", ";
+        }
+        cout << endl;
+    } else {
+        cout << "[DataLoader] Using all 10 classes" << endl;
     }
     
     load_cifar10_files();
@@ -85,11 +98,19 @@ void DataLoader::load_cifar10_files() {
             // Read label
             unsigned char label_byte;
             file.read(reinterpret_cast<char*>(&label_byte), 1);
-            all_labels.push_back(static_cast<int>(label_byte));
+            int label = static_cast<int>(label_byte);
             
             // Read image (3072 bytes: R, G, B channels)
             vector<unsigned char> buffer(image_size);
             file.read(reinterpret_cast<char*>(buffer.data()), image_size);
+            
+            // Filter by selected classes (if specified)
+            if (!is_class_selected(label)) {
+                continue;  // Skip this image
+            }
+            
+            // Store label
+            all_labels.push_back(label);
             
             // Convert to float and normalize [0, 1]
             // CIFAR-10 format: [R channel][G channel][B channel]
@@ -182,5 +203,19 @@ void DataLoader::reset() {
 
 unsigned char* DataLoader::get_batch_labels() {
     return batch_labels_cpu.data();
+}
+
+bool DataLoader::is_class_selected(int label) const {
+    // If no classes specified, include all
+    if (selected_classes.empty()) {
+        return true;
+    }
+    // Check if label is in selected_classes
+    for (int cls : selected_classes) {
+        if (cls == label) {
+            return true;
+        }
+    }
+    return false;
 }
 

@@ -113,7 +113,7 @@ int main() {
     float *d_grad_w_dec2 = (float*)gpu_malloc(w_dec2.size() * sizeof(float));
     float *d_grad_w_final = (float*)gpu_malloc(w_final.size() * sizeof(float));
     
-    // Allocate activation buffers
+    // Allocate activation buffers (single image)
     float *d_input = (float*)gpu_malloc(C * H * W * sizeof(float));
     float *d_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
     float *d_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
@@ -129,7 +129,19 @@ int main() {
     size_t max_col_size = 256 * 9 * 32 * 32 * sizeof(float);
     float *d_col_buffer = (float*)gpu_malloc(max_col_size);
     
-    cout << "[INFO] Memory allocated, starting training..." << endl;
+    // Pre-allocate gradient buffers (ONCE, reused for all images in batch)
+    float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
+    float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+    float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+    float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+    float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+    float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
+    
+    cout << "[INFO] Memory allocated (with pre-allocated gradient buffers), starting training..." << endl;
     
     // Training loop
     for (int epoch = 1; epoch <= NUM_EPOCHS; epoch++) {
@@ -156,8 +168,8 @@ int main() {
             
             // Process each image in batch
             for (int b = 0; b < BATCH_SIZE; b++) {
-                // Copy single image to device
-                gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
+                // Copy single image from batch (already on GPU) using device-to-device copy
+                cudaMemcpy(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float), cudaMemcpyDeviceToDevice);
                 
                 // FORWARD PASS (using phase3 Im2Col + GEMM)
                 dim3 block(16, 16);
@@ -179,6 +191,7 @@ int main() {
                 upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
                 forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
                 
+                // Sync only once after forward pass
                 cudaDeviceSynchronize();
                 
                 // COMPUTE LOSS
@@ -186,17 +199,7 @@ int main() {
                 batch_loss += loss;
                 
                 // BACKWARD PASS (Same as P2 - backward kernels are shared!)
-                // Allocate gradient buffers for activations
-                float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
-                float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-                float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-                float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-                float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-                float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-                float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
+                // Gradient buffers are pre-allocated, no need to allocate/free
                 
                 // MSE Loss Backward
                 mse_loss_backward(d_output, d_input, d_grad_output, C * H * W);
@@ -212,14 +215,12 @@ int main() {
                     d_grad_output, d_w_final, d_grad_ups2_out,
                     H, W, 256, H, W, C, 3
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through Upsample2 (16×16 → 32×32)
                 dim3 grid_ups2_bw((W/2+15)/16, (H/2+15)/16, 256);
                 upsample_backward<<<grid_ups2_bw, block>>>(
                     d_grad_ups2_out, d_grad_dec2_out, H/2, W/2, 256
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through Dec2 Conv (128→256)
                 dim3 grid_dec2_bw_w((3+15)/16, (3+15)/16, 256*128);
@@ -232,14 +233,12 @@ int main() {
                     d_grad_dec2_out, d_w_dec2, d_grad_ups1_out,
                     H/2, W/2, 128, H/2, W/2, 256, 3
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through Upsample1 (8×8 → 16×16)
                 dim3 grid_ups1_bw((W/4+15)/16, (H/4+15)/16, 128);
                 upsample_backward<<<grid_ups1_bw, block>>>(
                     d_grad_ups1_out, d_grad_dec1_out, H/4, W/4, 128
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through Dec1 Conv (128→128)
                 dim3 grid_dec1_bw_w((3+15)/16, (3+15)/16, 128*128);
@@ -252,7 +251,6 @@ int main() {
                     d_grad_dec1_out, d_w_dec1, d_grad_pool2_out,
                     H/4, W/4, 128, H/4, W/4, 128, 3
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through MaxPool2 (simplified - no argmax)
                 cudaMemcpy(d_grad_conv2_out, d_grad_pool2_out, 
@@ -262,7 +260,6 @@ int main() {
                 relu_backward<<<(128*H/2*W/2+255)/256, 256>>>(
                     d_grad_conv2_out, d_conv2_out, d_grad_conv2_out, 128*H/2*W/2
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through Conv2 (256→128)
                 dim3 grid_conv2_bw_w((3+15)/16, (3+15)/16, 128*256);
@@ -275,7 +272,6 @@ int main() {
                     d_grad_conv2_out, d_w_conv2, d_grad_pool1_out,
                     H/2, W/2, 256, H/2, W/2, 128, 3
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through MaxPool1 (simplified - no argmax)
                 cudaMemcpy(d_grad_conv1_out, d_grad_pool1_out,
@@ -285,7 +281,6 @@ int main() {
                 relu_backward<<<(256*H*W+255)/256, 256>>>(
                     d_grad_conv1_out, d_conv1_out, d_grad_conv1_out, 256*H*W
                 );
-                cudaDeviceSynchronize();
                 
                 // Backward through Conv1 (3→256)
                 dim3 grid_conv1_bw_w((3+15)/16, (3+15)/16, 256*C);
@@ -298,13 +293,9 @@ int main() {
                     d_grad_conv1_out, d_w_conv1, d_grad_input,
                     H, W, C, H, W, 256, 3
                 );
-                cudaDeviceSynchronize();
                 
-                // Cleanup gradient buffers
-                gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
-                gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
-                gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
-                gpu_free(d_grad_input);
+                // Sync only once at end of backward pass
+                cudaDeviceSynchronize();
             }
             
             // Average loss
@@ -383,6 +374,11 @@ int main() {
     gpu_free(d_conv2_out); gpu_free(d_pool2_out); gpu_free(d_dec1_out);
     gpu_free(d_ups1_out); gpu_free(d_dec2_out); gpu_free(d_ups2_out);
     gpu_free(d_output); gpu_free(d_col_buffer);
+    // Cleanup pre-allocated gradient buffers
+    gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
+    gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
+    gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
+    gpu_free(d_grad_input);
     
     cout << "===== Training Complete =====" << endl;
     return 0;
