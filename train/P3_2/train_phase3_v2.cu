@@ -220,7 +220,20 @@ int main() {
     size_t max_col_size = BATCH_SIZE * 256 * 9 * 32 * 32 * sizeof(float);
     float *d_col_buffer = (float*)gpu_malloc(max_col_size);
     
-    cout << "[INFO] Memory allocated, starting training..." << endl;
+    // Allocate gradient buffers ONCE (outside training loop) - MEMORY POOL/REUSE PATTERN
+    // This matches P2 and P3.1 implementation for better memory management
+    float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
+    float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+    float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+    float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
+    float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
+    float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
+    float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
+    
+    cout << "[INFO] Memory allocated (using memory pool pattern), starting training..." << endl;
     
     // Training loop
     for (int epoch = 1; epoch <= NUM_EPOCHS; epoch++) {
@@ -236,24 +249,15 @@ int main() {
         while (loader.has_next()) {
             float* batch_input = loader.next_batch();
             
-            // Zero gradients
+            // Zero gradients (both weight gradients and activation gradients)
             zero_gradient(d_grad_w_conv1, w_conv1.size());
             zero_gradient(d_grad_w_conv2, w_conv2.size());
             zero_gradient(d_grad_w_dec1, w_dec1.size());
             zero_gradient(d_grad_w_dec2, w_dec2.size());
             zero_gradient(d_grad_w_final, w_final.size());
             
-            // Allocate gradient buffers ONCE per batch (not per image)
-            float *d_grad_output = (float*)gpu_malloc(C * H * W * sizeof(float));
-            float *d_grad_ups2_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-            float *d_grad_dec2_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-            float *d_grad_ups1_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-            float *d_grad_dec1_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-            float *d_grad_pool2_out = (float*)gpu_malloc(128 * (H/4) * (W/4) * sizeof(float));
-            float *d_grad_conv2_out = (float*)gpu_malloc(128 * (H/2) * (W/2) * sizeof(float));
-            float *d_grad_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));
-            float *d_grad_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
-            float *d_grad_input = (float*)gpu_malloc(C * H * W * sizeof(float));
+            // Note: Gradient buffers are allocated ONCE outside training loop (memory pool pattern)
+            // They are reused for each batch, eliminating per-batch allocation overhead
             
             float batch_loss = 0.0f;
             
@@ -411,11 +415,8 @@ int main() {
             sgd_update(d_w_dec2, d_grad_w_dec2, LEARNING_RATE, w_dec2.size());
             sgd_update(d_w_final, d_grad_w_final, LEARNING_RATE, w_final.size());
             
-            // Cleanup gradient buffers (once per batch)
-            gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
-            gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
-            gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
-            gpu_free(d_grad_input);
+            // Note: Gradient buffers are NOT freed here - they are reused for next batch
+            // This follows memory pool/reuse pattern (same as P2 and P3.1)
             
             num_batches++;
             
@@ -576,6 +577,12 @@ int main() {
     gpu_free(d_conv2_out); gpu_free(d_pool2_out); gpu_free(d_dec1_out);
     gpu_free(d_ups1_out); gpu_free(d_dec2_out); gpu_free(d_ups2_out);
     gpu_free(d_output); gpu_free(d_col_buffer);
+    
+    // Cleanup gradient buffers (allocated once, freed once - memory pool pattern)
+    gpu_free(d_grad_output); gpu_free(d_grad_ups2_out); gpu_free(d_grad_dec2_out);
+    gpu_free(d_grad_ups1_out); gpu_free(d_grad_dec1_out); gpu_free(d_grad_pool2_out);
+    gpu_free(d_grad_conv2_out); gpu_free(d_grad_pool1_out); gpu_free(d_grad_conv1_out);
+    gpu_free(d_grad_input);
     
     cout << "===== Training Complete =====" << endl;
     return 0;
