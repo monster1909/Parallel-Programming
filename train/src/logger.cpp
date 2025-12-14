@@ -97,8 +97,7 @@ void Logger::log_training_summary(float total_time, const vector<float>& epoch_t
     oss << "  Usage: " << fixed << setprecision(2) 
         << (100.0f * gpu_memory_used_mb / gpu_memory_total_mb) << "%\n";
     oss << "\nSample Reconstructed Images:\n";
-    oss << "  Original: logs/sample_original.ppm\n";
-    oss << "  Reconstructed: logs/sample_reconstructed.ppm\n";
+    oss << "  (Check logs directory for sample_original_*.ppm and sample_reconstructed_*.ppm files)\n";
     oss << "========================================\n";
     
     log_message(oss.str());

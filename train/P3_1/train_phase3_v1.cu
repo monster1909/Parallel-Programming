@@ -5,6 +5,14 @@
 #include <chrono>
 #include <random>
 #include <cmath>
+#include <iomanip>
+#include <algorithm>
+#include <sys/stat.h>
+#include <sys/types.h>
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+#endif
 
 // Include utilities từ phase3
 #include "../../phase3_gpu_optimized/Include/utils/gpu_memory.h"
@@ -63,6 +71,30 @@ void xavier_init(vector<float>& weights, int fan_in, int fan_out) {
     }
 }
 
+// Save image as PPM format (for visualization)
+void save_ppm(const float* data, const string& filename, int H, int W, int C) {
+    ofstream f(filename);
+    if (!f) {
+        cerr << "[WARNING] Could not save image to " << filename << endl;
+        return;
+    }
+    f << "P3\n" << W << " " << H << "\n255\n";
+    for (int h = 0; h < H; ++h) {
+        for (int w = 0; w < W; ++w) {
+            int r = (int)(data[(0 * H + h) * W + w] * 255.0f);
+            int g = (int)(data[(1 * H + h) * W + w] * 255.0f);
+            int b = (int)(data[(2 * H + h) * W + w] * 255.0f);
+            r = max(0, min(255, r)); 
+            g = max(0, min(255, g)); 
+            b = max(0, min(255, b));
+            f << r << " " << g << " " << b << " ";
+        }
+        f << "\n";
+    }
+    f.close();
+    cout << "[INFO] Saved image to " << filename << endl;
+}
+
 int main() {
     cout << "===== Phase 3_1 Training (Im2Col + GEMM) =====" << endl;
     
@@ -72,11 +104,20 @@ int main() {
     const int NUM_EPOCHS = 20;
     const float LEARNING_RATE = 0.001f;
     
+    // Create logs and weights directories if they don't exist
+    mkdir("logs", 0755);
+    mkdir("weights", 0755);
+    
     // Initialize data loader and logger
     DataLoader loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE);
     Logger logger("logs/phase3_v1_training.log");
     
     logger.log_training_start(NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE);
+    
+    // Track training metrics
+    auto total_train_start = chrono::high_resolution_clock::now();
+    vector<float> epoch_times;
+    float final_loss = 0.0f;
     
     // Allocate weights (256/128 architecture - same as P2)
     vector<float> w_conv1(256 * C * 3 * 3);
@@ -330,16 +371,20 @@ int main() {
                 auto now = chrono::high_resolution_clock::now();
                 auto elapsed = chrono::duration_cast<chrono::seconds>(now - epoch_start).count();
                 int percent = ((num_batches * 20) / total_batches) * 5;  // Round to 5%, 10%, 15%...
-                cout << "  " << percent << "% - Loss: " << batch_loss << " - Time: " << elapsed << "s" << endl;
+                cout << "  " << percent << "% - Loss: " << fixed << setprecision(6) << batch_loss 
+                     << " - Time: " << elapsed << "s" << endl;
             }
         }
         
         auto epoch_end = chrono::high_resolution_clock::now();
-        auto epoch_time = chrono::duration_cast<chrono::seconds>(epoch_end - epoch_start).count();
+        auto epoch_time_seconds = chrono::duration_cast<chrono::milliseconds>(epoch_end - epoch_start).count() / 1000.0f;
+        epoch_times.push_back(epoch_time_seconds);
         
         float avg_loss = epoch_loss / num_batches;
-        cout << "Epoch " << epoch << " complete - Avg Loss: " << avg_loss << " - Time: " << epoch_time << "s" << endl << endl;
-        logger.log_epoch(epoch, avg_loss);
+        final_loss = avg_loss;  // Update final loss
+        cout << "Epoch " << epoch << " complete - Avg Loss: " << fixed << setprecision(6) << avg_loss 
+             << " - Time: " << setprecision(2) << epoch_time_seconds << "s" << endl << endl;
+        logger.log_epoch(epoch, avg_loss, epoch_time_seconds);
         
         loader.reset();
         
@@ -368,6 +413,58 @@ int main() {
             cerr << "[WARNING] Could not save weights to " << filename << endl;
         }
     }
+    
+    // Calculate total training time
+    auto total_train_end = chrono::high_resolution_clock::now();
+    auto total_time_seconds = chrono::duration_cast<chrono::milliseconds>(total_train_end - total_train_start).count() / 1000.0f;
+    
+    // Get GPU memory usage
+    size_t free_mem, total_mem;
+    cudaMemGetInfo(&free_mem, &total_mem);
+    size_t used_mem = total_mem - free_mem;
+    size_t used_mem_mb = used_mem / (1024 * 1024);
+    size_t total_mem_mb = total_mem / (1024 * 1024);
+    
+    // Save sample reconstructed images
+    cout << "\n[INFO] Generating sample reconstructed images..." << endl;
+    loader.reset();
+    if (loader.has_next()) {
+        float* sample_batch = loader.next_batch();
+        vector<float> sample_input(C * H * W);
+        vector<float> sample_output(C * H * W);
+        
+        // Copy first image from batch
+        memcpy(sample_input.data(), sample_batch, C * H * W * sizeof(float));
+        
+        // Run forward pass on sample image
+        gpu_memcpy_h2d(d_input, sample_input.data(), C * H * W * sizeof(float));
+        
+        // Forward pass
+        dim3 block(16, 16);
+        forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
+        relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
+        maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
+        forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
+        relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
+        maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
+        forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
+        upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
+        forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
+        upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
+        forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
+        cudaDeviceSynchronize();
+        
+        // Copy reconstructed image back
+        gpu_memcpy_d2h(sample_output.data(), d_output, C * H * W * sizeof(float));
+        
+        // Save original and reconstructed images
+        save_ppm(sample_input.data(), "logs/sample_original_phase3_v1.ppm", H, W, C);
+        save_ppm(sample_output.data(), "logs/sample_reconstructed_phase3_v1.ppm", H, W, C);
+        cout << "[INFO] Sample images saved to logs/sample_original_phase3_v1.ppm and logs/sample_reconstructed_phase3_v1.ppm" << endl;
+    }
+    
+    // Log training summary
+    logger.log_training_summary(total_time_seconds, epoch_times, final_loss, used_mem_mb, total_mem_mb);
     
     logger.log_training_end();
     

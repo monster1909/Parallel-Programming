@@ -503,9 +503,9 @@ int main() {
         gpu_memcpy_d2h(sample_output.data(), d_output, C * H * W * sizeof(float));
         
         // Save original and reconstructed images
-        save_ppm(sample_input.data(), "logs/sample_original.ppm", H, W, C);
-        save_ppm(sample_output.data(), "logs/sample_reconstructed.ppm", H, W, C);
-        cout << "[INFO] Sample images saved to logs/sample_original.ppm and logs/sample_reconstructed.ppm" << endl;
+        save_ppm(sample_input.data(), "logs/sample_original_phase3_v2.ppm", H, W, C);
+        save_ppm(sample_output.data(), "logs/sample_reconstructed_phase3_v2.ppm", H, W, C);
+        cout << "[INFO] Sample images saved to logs/sample_original_phase3_v2.ppm and logs/sample_reconstructed_phase3_v2.ppm" << endl;
     }
     
     // Log training summary
