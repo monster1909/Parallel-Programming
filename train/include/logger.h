@@ -3,6 +3,7 @@
 
 #include <string>
 #include <fstream>
+#include <vector>
 
 using namespace std;
 
@@ -15,6 +16,9 @@ public:
     void log_message(const string& msg);
     void log_training_start(int num_epochs, int batch_size, float learning_rate);
     void log_training_end();
+    void log_training_summary(float total_time, const vector<float>& epoch_times, 
+                              float final_loss, size_t gpu_memory_used_mb, 
+                              size_t gpu_memory_total_mb);
     
 private:
     string get_timestamp();
