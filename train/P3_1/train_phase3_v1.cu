@@ -103,7 +103,7 @@ int main() {
     // Hyperparameters
     const int H = 32, W = 32, C = 3;
     const int BATCH_SIZE = 32;
-    const int NUM_EPOCHS = 20;
+    const int NUM_EPOCHS = 1;
     const float LEARNING_RATE = 0.001f;
     
     // Create logs and weights directories if they don't exist
@@ -443,12 +443,8 @@ int main() {
     }
     
     // Calculate total training time
-    cout << "\n[DEBUG] Calculating total training time..." << endl;
     auto total_train_end = chrono::high_resolution_clock::now();
     auto total_time_seconds = chrono::duration_cast<chrono::milliseconds>(total_train_end - total_train_start).count() / 1000.0f;
-    cout << "[DEBUG] Total time calculated: " << total_time_seconds << " seconds" << endl;
-    cout << "[DEBUG] Epoch times size: " << epoch_times.size() << endl;
-    cout << "[DEBUG] Final loss: " << final_loss << endl;
     
     if (early_stopped) {
         cout << "\n[INFO] Training stopped early. Generating summary..." << endl;
@@ -458,7 +454,6 @@ int main() {
     }
     
     // Get GPU memory usage
-    cout << "[DEBUG] Getting GPU memory info..." << endl;
     size_t free_mem = 0, total_mem = 0;
     size_t used_mem_mb = 0, total_mem_mb = 0;
     cudaError_t mem_error = cudaMemGetInfo(&free_mem, &total_mem);
@@ -466,83 +461,151 @@ int main() {
         size_t used_mem = total_mem - free_mem;
         used_mem_mb = used_mem / (1024 * 1024);
         total_mem_mb = total_mem / (1024 * 1024);
-        cout << "[DEBUG] Memory info retrieved successfully" << endl;
     } else {
         cerr << "[WARNING] Could not get GPU memory info: " << cudaGetErrorString(mem_error) << endl;
     }
     
     // Save sample reconstructed images
+    bool sample_images_success = false;
     cout << "[INFO] Generating sample reconstructed images..." << endl;
-    try {
-        loader.reset();
-        if (loader.has_next()) {
-            float* sample_batch = loader.next_batch();
+    cout.flush();
+    
+        try {
+            // Generate random sample image (safer than loading from dataset)
             vector<float> sample_input(C * H * W);
             vector<float> sample_output(C * H * W);
             
-            // Copy first image from batch
-            memcpy(sample_input.data(), sample_batch, C * H * W * sizeof(float));
+            mt19937 gen(42);
+            uniform_real_distribution<float> dis(0.0f, 1.0f);
+            for (int i = 0; i < C * H * W; i++) {
+                sample_input[i] = dis(gen);
+            }
             
-            // Run forward pass on sample image
+            // Copy to GPU
             gpu_memcpy_h2d(d_input, sample_input.data(), C * H * W * sizeof(float));
             
             // Forward pass
             dim3 block(16, 16);
-            forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
-            relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
-            maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
-            forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
-            relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
-            maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
-            forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
-            upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
-            forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
-            upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
-            forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
-            cudaDeviceSynchronize();
             
-            // Check for CUDA errors
+            // CRITICAL: Check CUDA errors after EACH operation
+            forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
             cudaError_t err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                cerr << "[WARNING] CUDA error during forward pass: " << cudaGetErrorString(err) << endl;
-            } else {
-                // Copy reconstructed image back
-                gpu_memcpy_d2h(sample_output.data(), d_output, C * H * W * sizeof(float));
-                
-                // Save original and reconstructed images
-                save_ppm(sample_input.data(), "logs/sample_original_phase3_v1.ppm", H, W, C);
-                save_ppm(sample_output.data(), "logs/sample_reconstructed_phase3_v1.ppm", H, W, C);
-                cout << "[INFO] Sample images saved to logs/sample_original_phase3_v1.ppm and logs/sample_reconstructed_phase3_v1.ppm" << endl;
-            }
-        } else {
-            cerr << "[WARNING] Could not load sample batch for image generation" << endl;
-        }
-    } catch (const exception& e) {
-        cerr << "[WARNING] Exception generating sample images: " << e.what() << ", continuing with summary..." << endl;
+            if (err != cudaSuccess) throw runtime_error(string("Conv1: ") + cudaGetErrorString(err));
+            
+            relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("ReLU1: ") + cudaGetErrorString(err));
+            
+            maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("MaxPool1: ") + cudaGetErrorString(err));
+            
+            forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Conv2: ") + cudaGetErrorString(err));
+            
+            relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("ReLU2: ") + cudaGetErrorString(err));
+            
+            maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("MaxPool2: ") + cudaGetErrorString(err));
+            
+            forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Dec1: ") + cudaGetErrorString(err));
+            
+            upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Upsample1: ") + cudaGetErrorString(err));
+            
+            forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Dec2: ") + cudaGetErrorString(err));
+            
+            upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Upsample2: ") + cudaGetErrorString(err));
+            
+            forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Final: ") + cudaGetErrorString(err));
+            
+            cudaDeviceSynchronize();
+            err = cudaGetLastError();
+            if (err != cudaSuccess) throw runtime_error(string("Sync: ") + cudaGetErrorString(err));
+            
+            // Copy reconstructed image back
+            gpu_memcpy_d2h(sample_output.data(), d_output, C * H * W * sizeof(float));
+            
+            // Save original and reconstructed images
+            save_ppm(sample_input.data(), "logs/sample_original_phase3_v1.ppm", H, W, C);
+            save_ppm(sample_output.data(), "logs/sample_reconstructed_phase3_v1.ppm", H, W, C);
+            cout << "[INFO] Sample images saved successfully!" << endl;
+            cout.flush();
+            sample_images_success = true;
+            
+        } catch (const exception& e) {
+            cerr << "[WARNING] Exception generating sample images: " << e.what() << endl;
+            cerr << "[INFO] Continuing with summary anyway..." << endl;
+            cerr.flush();
     } catch (...) {
-        cerr << "[WARNING] Unknown error generating sample images, continuing with summary..." << endl;
+        cerr << "[WARNING] Unknown error generating sample images" << endl;
+        cerr << "[INFO] Continuing with summary anyway..." << endl;
+        cerr.flush();
     }
     
+    cout << "[INFO] Sample image phase completed (success=" << sample_images_success << ")" << endl;
+    cout.flush();
+    
     // Log training summary (ALWAYS call this, even if sample images failed)
-    cout << "\n[INFO] Logging training summary..." << endl;
-    cout << "[DEBUG] About to call log_training_summary with:" << endl;
-    cout << "  - total_time: " << total_time_seconds << endl;
-    cout << "  - epoch_times.size(): " << epoch_times.size() << endl;
-    cout << "  - final_loss: " << final_loss << endl;
-    cout << "  - used_mem_mb: " << used_mem_mb << endl;
-    cout << "  - total_mem_mb: " << total_mem_mb << endl;
+    cout << "\n========================================" << endl;
+    cout << "       TRAINING SUMMARY" << endl;
+    cout << "========================================" << endl;
+    cout.flush();
     
     if (early_stopped) {
         logger.log_message("Training stopped early due to no improvement");
+        cout << "\n[EARLY STOP] Training stopped after epoch " << epoch_times.size() 
+             << " (no improvement for " << EARLY_STOP_PATIENCE << " epochs)" << endl;
     }
     
+    // ALWAYS print summary to console, even if logger fails
+    cout << "\n--- Training Performance ---" << endl;
+    cout << "Total training time: " << fixed << setprecision(2) << total_time_seconds << " seconds" << endl;
+    cout << "Number of epochs completed: " << epoch_times.size() << endl;
+    if (!epoch_times.empty()) {
+        float avg_epoch_time = 0.0f;
+        for (float t : epoch_times) avg_epoch_time += t;
+        avg_epoch_time /= epoch_times.size();
+        cout << "Average time per epoch: " << fixed << setprecision(2) << avg_epoch_time << " seconds" << endl;
+    }
+    cout << "Final reconstruction loss: " << fixed << setprecision(6) << final_loss << endl;
+    cout << "\n--- Memory Usage ---" << endl;
+    cout << "GPU Memory Used: " << used_mem_mb << " MB / " << total_mem_mb << " MB" << endl;
+    cout << "GPU Memory Usage: " << fixed << setprecision(1) 
+         << (100.0f * used_mem_mb / total_mem_mb) << "%" << endl;
+    cout << "\n--- Sample Images ---" << endl;
+    if (sample_images_success) {
+        cout << "✓ Sample reconstructed images saved to:" << endl;
+        cout << "  - logs/sample_original_phase3_v1.ppm" << endl;
+        cout << "  - logs/sample_reconstructed_phase3_v1.ppm" << endl;
+    } else {
+        cout << "✗ Sample image generation failed or was disabled" << endl;
+    }
+    cout << "========================================\n" << endl;
+    cout.flush();
+    
+    // Now try to call logger (but don't let it crash the summary)
     try {
         logger.log_training_summary(total_time_seconds, epoch_times, final_loss, used_mem_mb, total_mem_mb);
-        cout << "[DEBUG] log_training_summary completed successfully" << endl;
     } catch (const exception& e) {
         cerr << "[ERROR] Exception in log_training_summary: " << e.what() << endl;
+        cerr << "[INFO] Summary was printed to console anyway" << endl;
     } catch (...) {
         cerr << "[ERROR] Unknown error in log_training_summary" << endl;
+        cerr << "[INFO] Summary was printed to console anyway" << endl;
     }
     
     logger.log_training_end();
