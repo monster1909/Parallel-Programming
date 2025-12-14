@@ -103,7 +103,7 @@ int main() {
     // Hyperparameters
     const int H = 32, W = 32, C = 3;
     const int BATCH_SIZE = 32;
-    const int NUM_EPOCHS = 1;
+    const int NUM_EPOCHS = 20;
     const float LEARNING_RATE = 0.001f;
     
     // Create logs and weights directories if they don't exist
