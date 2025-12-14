@@ -82,25 +82,23 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
     #pragma omp parallel for
     for (int n=0;n<N;++n) {
         const float* inptr = input_batch + n * in_img_size;
+        
         bool do_timing = (N == 1 && n == 0 && timer != nullptr);
+
         // --- Conv1 ---
+        // [FIX] Khôi phục feat1ptr
         float* feat1ptr = act.feat1 + n * feat1_size; 
-        
-        // [FIX] Cấp phát bộ nhớ đệm TRƯỚC khi bấm giờ
-        float* col_buf1 = (float*) malloc(sizeof(float) * conv1.in_c * conv1.k * conv1.k * conv1.Hout * conv1.Wout);
-        
         auto t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
-        conv1.forward_one(inptr, feat1ptr, col_buf1);
-        if (do_timing) timer->record_duration("Conv1", t_start);
         
-        // [FIX] Giải phóng SAU khi bấm giờ xong
+        float* col_buf1 = (float*) malloc(sizeof(float) * conv1.in_c * conv1.k * conv1.k * conv1.Hout * conv1.Wout);
+        conv1.forward_one(inptr, feat1ptr, col_buf1);
         free(col_buf1);
+        
+        if (do_timing) timer->record_duration("Conv1", t_start);
 
         // --- ReLU1 ---
-        // [FIX] Copy dữ liệu TRƯỚC khi bấm giờ
-        memcpy(act.feat1_relu + n * feat1_size, feat1ptr, sizeof(float)*feat1_size);
-        
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
+        memcpy(act.feat1_relu + n * feat1_size, feat1ptr, sizeof(float)*feat1_size);
         relu_forward_inplace(feat1ptr, feat1_size);
         if (do_timing) timer->record_duration("ReLU1", t_start);
 
@@ -110,22 +108,19 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         if (do_timing) timer->record_duration("MaxPool1", t_start);
 
         // --- Conv2 ---
+        // [FIX] Khôi phục feat2ptr
         float* feat2ptr = act.feat2 + n * feat2_size;
-        
-        // [FIX] malloc ra ngoài
-        float* col_buf2 = (float*) malloc(sizeof(float) * conv2.in_c * conv2.k * conv2.k * conv2.Hout * conv2.Wout);
-        
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
-        conv2.forward_one(act.pool1 + n * pool1_size, feat2ptr, col_buf2);
-        if (do_timing) timer->record_duration("Conv2", t_start);
         
+        float* col_buf2 = (float*) malloc(sizeof(float) * conv2.in_c * conv2.k * conv2.k * conv2.Hout * conv2.Wout);
+        conv2.forward_one(act.pool1 + n * pool1_size, feat2ptr, col_buf2);
         free(col_buf2);
+        
+        if (do_timing) timer->record_duration("Conv2", t_start);
 
         // --- ReLU2 ---
-        // [FIX] memcpy ra ngoài
-        memcpy(act.feat2_relu + n * feat2_size, feat2ptr, sizeof(float)*feat2_size);
-        
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
+        memcpy(act.feat2_relu + n * feat2_size, feat2ptr, sizeof(float)*feat2_size);
         relu_forward_inplace(feat2ptr, feat2_size);
         if (do_timing) timer->record_duration("ReLU2", t_start);
 
@@ -134,21 +129,20 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         maxpool2x2_forward_with_argmax(feat2ptr, F2, IMG_H/2, IMG_W/2, act.latent + n * latent_size, act.pool2_argmax + n * latent_size);
         if (do_timing) timer->record_duration("MaxPool2 (Latent)", t_start);
 
-        // --- Conv3 (Decoder Conv1) ---
+        // --- Conv3 ---
+        // [FIX] Khôi phục feat3ptr
         float* feat3ptr = act.feat3 + n * feat3_size;
+        t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
         float* col_buf3 = (float*) malloc(sizeof(float) * conv3.in_c * conv3.k * conv3.k * conv3.Hout * conv3.Wout);
-        
-        t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         conv3.forward_one(act.latent + n * latent_size, feat3ptr, col_buf3);
-        if (do_timing) timer->record_duration("DecodeConv1 (Conv3)", t_start);
-        
         free(col_buf3);
+        
+        if (do_timing) timer->record_duration("DecodeConv1 (Conv3)", t_start);
 
         // --- ReLU3 ---
-        memcpy(act.feat3_relu + n * feat3_size, feat3ptr, sizeof(float)*feat3_size);
-        
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
+        memcpy(act.feat3_relu + n * feat3_size, feat3ptr, sizeof(float)*feat3_size);
         relu_forward_inplace(feat3ptr, feat3_size);
         if (do_timing) timer->record_duration("ReLU_Dec1 (ReLU3)", t_start);
         
@@ -157,21 +151,20 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         upsample2x_forward(feat3ptr, F2, IMG_H/4, IMG_W/4, act.up1 + n * up1_size);
         if (do_timing) timer->record_duration("Upsample1", t_start);
 
-        // --- Conv4 (Decoder Conv2) ---
+        // --- Conv4 ---
+        // [FIX] Khôi phục feat4ptr
         float* feat4ptr = act.feat4 + n * feat4_size;
+        t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
         float* col_buf4 = (float*) malloc(sizeof(float) * conv4.in_c * conv4.k * conv4.k * conv4.Hout * conv4.Wout);
-        
-        t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         conv4.forward_one(act.up1 + n * up1_size, feat4ptr, col_buf4);
-        if (do_timing) timer->record_duration("DecodeConv2 (Conv4)", t_start);
-        
         free(col_buf4);
+        
+        if (do_timing) timer->record_duration("DecodeConv2 (Conv4)", t_start);
 
         // --- ReLU4 ---
-        memcpy(act.feat4_relu + n * feat4_size, feat4ptr, sizeof(float)*feat4_size);
-        
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
+        memcpy(act.feat4_relu + n * feat4_size, feat4ptr, sizeof(float)*feat4_size);
         relu_forward_inplace(feat4ptr, feat4_size);
         if (do_timing) timer->record_duration("ReLU_Dec2 (ReLU4)", t_start);
         
@@ -180,16 +173,16 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         upsample2x_forward(feat4ptr, F1, IMG_H/2, IMG_W/2, act.up2 + n * up2_size);
         if (do_timing) timer->record_duration("Upsample2", t_start);
 
-        // --- FinalConv (Conv5) ---
+        // --- Conv5 ---
+        // [FIX] Khôi phục outptr
         float* outptr = output_batch + n * out_img_size;
+        t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
         float* col_buf5 = (float*) malloc(sizeof(float) * conv5.in_c * conv5.k * conv5.k * conv5.Hout * conv5.Wout);
-        
-        t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         conv5.forward_one(act.up2 + n * up2_size, outptr, col_buf5);
-        if (do_timing) timer->record_duration("FinalConv (Conv5)", t_start);
-        
         free(col_buf5);
+        
+        if (do_timing) timer->record_duration("FinalConv (Conv5)", t_start);
     }
 }
 
