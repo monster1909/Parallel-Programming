@@ -119,6 +119,12 @@ int main() {
     vector<float> epoch_times;
     float final_loss = 0.0f;
     
+    // Early stopping parameters
+    const int EARLY_STOP_PATIENCE = 3;  // Stop if no improvement for 3 epochs
+    float best_loss = 1e10f;  // Initialize with a very large value
+    int epochs_without_improvement = 0;
+    bool early_stopped = false;
+    
     // Allocate weights (256/128 architecture - same as P2)
     vector<float> w_conv1(256 * C * 3 * 3);
     vector<float> w_conv2(128 * 256 * 3 * 3);
@@ -382,8 +388,28 @@ int main() {
         
         float avg_loss = epoch_loss / num_batches;
         final_loss = avg_loss;  // Update final loss
-        cout << "Epoch " << epoch << " complete - Avg Loss: " << fixed << setprecision(6) << avg_loss 
-             << " - Time: " << setprecision(2) << epoch_time_seconds << "s" << endl << endl;
+        
+        // Early stopping check
+        if (avg_loss < best_loss) {
+            best_loss = avg_loss;
+            epochs_without_improvement = 0;
+            cout << "Epoch " << epoch << " complete - Avg Loss: " << fixed << setprecision(6) << avg_loss 
+                 << " (Best: " << best_loss << ") - Time: " << setprecision(2) << epoch_time_seconds << "s" << endl << endl;
+        } else {
+            epochs_without_improvement++;
+            cout << "Epoch " << epoch << " complete - Avg Loss: " << fixed << setprecision(6) << avg_loss 
+                 << " (Best: " << best_loss << ", No improvement: " << epochs_without_improvement << "/" << EARLY_STOP_PATIENCE 
+                 << ") - Time: " << setprecision(2) << epoch_time_seconds << "s" << endl << endl;
+            
+            if (epochs_without_improvement >= EARLY_STOP_PATIENCE) {
+                early_stopped = true;
+                cout << "[INFO] Early stopping triggered! No improvement for " << EARLY_STOP_PATIENCE << " epochs." << endl;
+                cout << "[INFO] Best loss: " << fixed << setprecision(6) << best_loss << " at epoch " << (epoch - EARLY_STOP_PATIENCE) << endl;
+                logger.log_message("Early stopping triggered - No improvement for " + to_string(EARLY_STOP_PATIENCE) + " epochs");
+                break;  // Exit training loop
+            }
+        }
+        
         logger.log_epoch(epoch, avg_loss, epoch_time_seconds);
         
         loader.reset();
@@ -418,52 +444,80 @@ int main() {
     auto total_train_end = chrono::high_resolution_clock::now();
     auto total_time_seconds = chrono::duration_cast<chrono::milliseconds>(total_train_end - total_train_start).count() / 1000.0f;
     
-    // Get GPU memory usage
-    size_t free_mem, total_mem;
-    cudaMemGetInfo(&free_mem, &total_mem);
-    size_t used_mem = total_mem - free_mem;
-    size_t used_mem_mb = used_mem / (1024 * 1024);
-    size_t total_mem_mb = total_mem / (1024 * 1024);
-    
-    // Save sample reconstructed images
-    cout << "\n[INFO] Generating sample reconstructed images..." << endl;
-    loader.reset();
-    if (loader.has_next()) {
-        float* sample_batch = loader.next_batch();
-        vector<float> sample_input(C * H * W);
-        vector<float> sample_output(C * H * W);
-        
-        // Copy first image from batch
-        memcpy(sample_input.data(), sample_batch, C * H * W * sizeof(float));
-        
-        // Run forward pass on sample image
-        gpu_memcpy_h2d(d_input, sample_input.data(), C * H * W * sizeof(float));
-        
-        // Forward pass
-        dim3 block(16, 16);
-        forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
-        relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
-        maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
-        forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
-        relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
-        maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
-        forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
-        upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
-        forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
-        upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
-        forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
-        cudaDeviceSynchronize();
-        
-        // Copy reconstructed image back
-        gpu_memcpy_d2h(sample_output.data(), d_output, C * H * W * sizeof(float));
-        
-        // Save original and reconstructed images
-        save_ppm(sample_input.data(), "logs/sample_original_phase3_v1.ppm", H, W, C);
-        save_ppm(sample_output.data(), "logs/sample_reconstructed_phase3_v1.ppm", H, W, C);
-        cout << "[INFO] Sample images saved to logs/sample_original_phase3_v1.ppm and logs/sample_reconstructed_phase3_v1.ppm" << endl;
+    if (early_stopped) {
+        cout << "\n[INFO] Training stopped early. Generating summary..." << endl;
+        final_loss = best_loss;  // Use best loss as final loss
+    } else {
+        cout << "\n[INFO] Training completed. Generating summary..." << endl;
     }
     
-    // Log training summary
+    // Get GPU memory usage
+    size_t free_mem = 0, total_mem = 0;
+    size_t used_mem_mb = 0, total_mem_mb = 0;
+    cudaError_t mem_error = cudaMemGetInfo(&free_mem, &total_mem);
+    if (mem_error == cudaSuccess) {
+        size_t used_mem = total_mem - free_mem;
+        used_mem_mb = used_mem / (1024 * 1024);
+        total_mem_mb = total_mem / (1024 * 1024);
+    } else {
+        cerr << "[WARNING] Could not get GPU memory info: " << cudaGetErrorString(mem_error) << endl;
+    }
+    
+    // Save sample reconstructed images
+    cout << "[INFO] Generating sample reconstructed images..." << endl;
+    try {
+        loader.reset();
+        if (loader.has_next()) {
+            float* sample_batch = loader.next_batch();
+            vector<float> sample_input(C * H * W);
+            vector<float> sample_output(C * H * W);
+            
+            // Copy first image from batch
+            memcpy(sample_input.data(), sample_batch, C * H * W * sizeof(float));
+            
+            // Run forward pass on sample image
+            gpu_memcpy_h2d(d_input, sample_input.data(), C * H * W * sizeof(float));
+            
+            // Forward pass
+            dim3 block(16, 16);
+            forward_conv_layer(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
+            relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
+            maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
+            forward_conv_layer(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
+            relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
+            maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
+            forward_conv_layer(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
+            upsample<<<dim3((W/2+15)/16, (H/2+15)/16, 128), block>>>(d_dec1_out, d_ups1_out, H/4, W/4, 128);
+            forward_conv_layer(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
+            upsample<<<dim3((W+15)/16, (H+15)/16, 256), block>>>(d_dec2_out, d_ups2_out, H/2, W/2, 256);
+            forward_conv_layer(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
+            cudaDeviceSynchronize();
+            
+            // Check for CUDA errors
+            cudaError_t err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                cerr << "[WARNING] CUDA error during forward pass: " << cudaGetErrorString(err) << endl;
+            } else {
+                // Copy reconstructed image back
+                gpu_memcpy_d2h(sample_output.data(), d_output, C * H * W * sizeof(float));
+                
+                // Save original and reconstructed images
+                save_ppm(sample_input.data(), "logs/sample_original_phase3_v1.ppm", H, W, C);
+                save_ppm(sample_output.data(), "logs/sample_reconstructed_phase3_v1.ppm", H, W, C);
+                cout << "[INFO] Sample images saved to logs/sample_original_phase3_v1.ppm and logs/sample_reconstructed_phase3_v1.ppm" << endl;
+            }
+        } else {
+            cerr << "[WARNING] Could not load sample batch for image generation" << endl;
+        }
+    } catch (...) {
+        cerr << "[WARNING] Error generating sample images, continuing with summary..." << endl;
+    }
+    
+    // Log training summary (ALWAYS call this, even if sample images failed)
+    cout << "\n[INFO] Logging training summary..." << endl;
+    if (early_stopped) {
+        logger.log_message("Training stopped early due to no improvement");
+    }
     logger.log_training_summary(total_time_seconds, epoch_times, final_loss, used_mem_mb, total_mem_mb);
     
     logger.log_training_end();
