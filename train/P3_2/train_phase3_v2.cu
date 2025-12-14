@@ -418,7 +418,8 @@ int main() {
                 auto now = chrono::high_resolution_clock::now();
                 auto elapsed = chrono::duration_cast<chrono::seconds>(now - epoch_start).count();
                 int percent = ((num_batches * 20) / total_batches) * 5;  // Round to 5%, 10%, 15%...
-                cout << "  " << percent << "% - Loss: " << batch_loss << " - Time: " << elapsed << "s" << endl;
+                cout << "  " << percent << "% - Loss: " << fixed << setprecision(6) << batch_loss 
+                     << " - Time: " << elapsed << "s" << endl;
             }
         }
         
@@ -428,7 +429,8 @@ int main() {
         
         float avg_loss = epoch_loss / num_batches;
         final_loss = avg_loss;  // Update final loss
-        cout << "Epoch " << epoch << " complete - Avg Loss: " << avg_loss << " - Time: " << fixed << setprecision(2) << epoch_time_seconds << "s" << endl << endl;
+        cout << "Epoch " << epoch << " complete - Avg Loss: " << fixed << setprecision(6) << avg_loss 
+             << " - Time: " << setprecision(2) << epoch_time_seconds << "s" << endl << endl;
         logger.log_epoch(epoch, avg_loss, epoch_time_seconds);
         
         loader.reset();
