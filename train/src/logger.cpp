@@ -106,4 +106,5 @@ void Logger::log_training_summary(float total_time, const vector<float>& epoch_t
     
     log_message(oss.str());
     cout << oss.str() << endl;
+    cout.flush();  // Force flush to ensure output is displayed
 }

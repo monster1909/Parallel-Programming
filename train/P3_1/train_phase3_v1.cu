@@ -7,6 +7,8 @@
 #include <cmath>
 #include <iomanip>
 #include <algorithm>
+#include <exception>
+#include <stdexcept>
 #include <sys/stat.h>
 #include <sys/types.h>
 #ifdef _WIN32
@@ -441,8 +443,12 @@ int main() {
     }
     
     // Calculate total training time
+    cout << "\n[DEBUG] Calculating total training time..." << endl;
     auto total_train_end = chrono::high_resolution_clock::now();
     auto total_time_seconds = chrono::duration_cast<chrono::milliseconds>(total_train_end - total_train_start).count() / 1000.0f;
+    cout << "[DEBUG] Total time calculated: " << total_time_seconds << " seconds" << endl;
+    cout << "[DEBUG] Epoch times size: " << epoch_times.size() << endl;
+    cout << "[DEBUG] Final loss: " << final_loss << endl;
     
     if (early_stopped) {
         cout << "\n[INFO] Training stopped early. Generating summary..." << endl;
@@ -452,6 +458,7 @@ int main() {
     }
     
     // Get GPU memory usage
+    cout << "[DEBUG] Getting GPU memory info..." << endl;
     size_t free_mem = 0, total_mem = 0;
     size_t used_mem_mb = 0, total_mem_mb = 0;
     cudaError_t mem_error = cudaMemGetInfo(&free_mem, &total_mem);
@@ -459,6 +466,7 @@ int main() {
         size_t used_mem = total_mem - free_mem;
         used_mem_mb = used_mem / (1024 * 1024);
         total_mem_mb = total_mem / (1024 * 1024);
+        cout << "[DEBUG] Memory info retrieved successfully" << endl;
     } else {
         cerr << "[WARNING] Could not get GPU memory info: " << cudaGetErrorString(mem_error) << endl;
     }
@@ -509,16 +517,33 @@ int main() {
         } else {
             cerr << "[WARNING] Could not load sample batch for image generation" << endl;
         }
+    } catch (const exception& e) {
+        cerr << "[WARNING] Exception generating sample images: " << e.what() << ", continuing with summary..." << endl;
     } catch (...) {
-        cerr << "[WARNING] Error generating sample images, continuing with summary..." << endl;
+        cerr << "[WARNING] Unknown error generating sample images, continuing with summary..." << endl;
     }
     
     // Log training summary (ALWAYS call this, even if sample images failed)
     cout << "\n[INFO] Logging training summary..." << endl;
+    cout << "[DEBUG] About to call log_training_summary with:" << endl;
+    cout << "  - total_time: " << total_time_seconds << endl;
+    cout << "  - epoch_times.size(): " << epoch_times.size() << endl;
+    cout << "  - final_loss: " << final_loss << endl;
+    cout << "  - used_mem_mb: " << used_mem_mb << endl;
+    cout << "  - total_mem_mb: " << total_mem_mb << endl;
+    
     if (early_stopped) {
         logger.log_message("Training stopped early due to no improvement");
     }
-    logger.log_training_summary(total_time_seconds, epoch_times, final_loss, used_mem_mb, total_mem_mb);
+    
+    try {
+        logger.log_training_summary(total_time_seconds, epoch_times, final_loss, used_mem_mb, total_mem_mb);
+        cout << "[DEBUG] log_training_summary completed successfully" << endl;
+    } catch (const exception& e) {
+        cerr << "[ERROR] Exception in log_training_summary: " << e.what() << endl;
+    } catch (...) {
+        cerr << "[ERROR] Unknown error in log_training_summary" << endl;
+    }
     
     logger.log_training_end();
     
