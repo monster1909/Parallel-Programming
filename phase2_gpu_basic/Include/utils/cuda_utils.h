@@ -1,11 +1,8 @@
 #ifndef CUDA_UTILS_H
 #define CUDA_UTILS_H
-
 #include <cuda_runtime.h>
 #include <iostream>
-
 using namespace std;
-
 inline void checkCuda(cudaError_t status, const char *msg = "")
 {
     if (status != cudaSuccess)
@@ -15,5 +12,4 @@ inline void checkCuda(cudaError_t status, const char *msg = "")
         exit(EXIT_FAILURE);
     }
 }
-
 #endif

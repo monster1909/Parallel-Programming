@@ -1,54 +1,55 @@
-# Makefile for Phase 3_2 Training (Kernel Fusion + Batching)
-
 NVCC = nvcc
 NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
-
-# Directories
+PHASE3_DIR = ../../phase3_gpu_optimized
 PHASE3_V2_DIR = ../../phase3_gpu_optimized_v2
 TRAIN_DIR = ..
+INCLUDES = -I$(PHASE3_DIR)/Include -I$(PHASE3_DIR)/include
 
-# Include paths
-INCLUDES = -I$(PHASE3_V2_DIR)/Include -I$(TRAIN_DIR)/include
+KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
+          $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
+          $(PHASE3_V2_DIR)/src/kernels/relu.cu \
+          $(PHASE3_V2_DIR)/src/kernels/maxpool.cu \
+          $(PHASE3_V2_DIR)/src/kernels/upsample.cu \
+          $(PHASE3_V2_DIR)/src/kernels/conv2d_backward_gemm_optimized.cu \
+          $(PHASE3_V2_DIR)/src/kernels/relu_backward.cu \
+          $(PHASE3_V2_DIR)/src/kernels/upsample_backward.cu
 
-# Source files
-TRAIN_SRC = train_phase3_v2.cu
-PHASE3_V2_KERNELS = $(PHASE3_V2_DIR)/src/kernels/im2col.cu \
-                    $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
-                    $(PHASE3_V2_DIR)/src/kernels/relu.cu \
-                    $(PHASE3_V2_DIR)/src/kernels/maxpool.cu \
-                    $(PHASE3_V2_DIR)/src/kernels/upsample.cu
+FORWARD_KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/relu.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/maxpool.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/upsample.cu
 
-TRAIN_KERNELS = $(TRAIN_DIR)/src/kernels/conv2d_backward.cu \
-                $(TRAIN_DIR)/src/kernels/relu_backward.cu \
-                $(TRAIN_DIR)/src/kernels/maxpool_backward.cu \
-                $(TRAIN_DIR)/src/kernels/upsample_backward.cu \
-                $(TRAIN_DIR)/src/kernels/mse_loss.cu
+TRAIN_UTILS = $(PHASE3_V2_DIR)/src/kernels/mse_loss.cu \
+              $(TRAIN_DIR)/src/sgd_optimizer.cu
 
-TRAIN_UTILS = $(TRAIN_DIR)/src/sgd_optimizer.cu \
-              $(TRAIN_DIR)/src/data_loader.cpp \
-              $(TRAIN_DIR)/src/logger.cpp
+all: benchmark_full train_phase3_v2 infer_phase3_v2 extract_features
 
-# Output
-TARGET = train_phase3_v2
+benchmark_full: benchmark_full.cu $(KERNELS)
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) benchmark_full.cu $(KERNELS) -o benchmark_full
 
-all: $(TARGET)
+train_phase3_v2: train_phase3_v2.cu $(KERNELS) $(TRAIN_UTILS)
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) train_phase3_v2.cu $(KERNELS) $(TRAIN_UTILS) -o train_phase3_v2
 
-$(TARGET): $(TRAIN_SRC) $(PHASE3_V2_KERNELS) $(TRAIN_KERNELS) $(TRAIN_UTILS)
-	@echo "Compiling Phase 3_2 Training (Kernel Fusion + Batching)..."
-	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) \
-		$(TRAIN_SRC) \
-		$(PHASE3_V2_KERNELS) \
-		$(TRAIN_KERNELS) \
-		$(TRAIN_UTILS) \
-		-o $(TARGET)
-	@echo "Build complete: $(TARGET)"
+infer_phase3_v2: infer_phase3_v2.cu $(FORWARD_KERNELS)
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) infer_phase3_v2.cu $(FORWARD_KERNELS) -o infer_phase3_v2
+
+extract_features: extract_features.cu $(FORWARD_KERNELS)
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) extract_features.cu $(FORWARD_KERNELS) -o extract_features
+
+run: benchmark_full
+	./benchmark_full
+
+train: train_phase3_v2
+	./train_phase3_v2
+
+infer: infer_phase3_v2
+	./infer_phase3_v2
+
+extract: extract_features
+	./extract_features
 
 clean:
-	rm -f $(TARGET)
-	rm -f logs/*.log
-	@echo "Cleaned build files"
+	rm -f benchmark_full train_phase3_v2 infer_phase3_v2 extract_features
 
-run: $(TARGET)
-	./$(TARGET)
-
-.PHONY: all clean run
+.PHONY: all run train infer extract clean
