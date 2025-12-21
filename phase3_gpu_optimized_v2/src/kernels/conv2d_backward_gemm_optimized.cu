@@ -40,10 +40,12 @@ void col2im_gpu_optimized(const float* data_col, float* data_im,
     col2im_kernel_optimized<<<blocks, threads>>>(data_col, data_im, channels, height, width,
                                                   ksize, pad, stride, h_out, w_out);
 }
+extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C,
+                                      int M, int N, int K);
 extern "C" __global__ void gemm_tiled_optimized(const float* A, const float* B, float* C,
                                                 int M, int N, int K);
 void im2col_gpu(const float* data_im, float* data_col,
-                int channels, int height, int width,
+                int batch_size, int channels, int height, int width,
                 int ksize, int pad, int stride,
                 int h_out, int w_out);
 void conv2d_backward_weights_gemm_optimized(
@@ -55,13 +57,14 @@ void conv2d_backward_weights_gemm_optimized(
     int H_out, int W_out, int C_out,
     int K, int pad, int stride
 ) {
-    im2col_gpu(input, col_buffer, C_in, H_in, W_in, K, pad, stride, H_out, W_out);
+    im2col_gpu(input, col_buffer, 1, C_in, H_in, W_in, K, pad, stride, H_out, W_out);
     int M = C_out;
     int N = C_in * K * K;
     int K_gemm = H_out * W_out;
-    dim3 dimBlock(32, 32);
-    dim3 dimGrid((N + 31) / 32, (M + 31) / 32);
-    gemm_tiled_optimized<<<dimGrid, dimBlock>>>(grad_output, col_buffer, grad_weights, M, N, K_gemm);
+    // Use 16x16 tiles for better performance with small matrices
+    dim3 dimBlock(16, 16);
+    dim3 dimGrid((N + 15) / 16, (M + 15) / 16);
+    gemm_tiled<<<dimGrid, dimBlock>>>(grad_output, col_buffer, grad_weights, M, N, K_gemm);
 }
 void conv2d_backward_input_gemm_optimized(
     const float* grad_output,  
@@ -75,9 +78,10 @@ void conv2d_backward_input_gemm_optimized(
     int M = C_in * K * K;
     int N = H_out * W_out;
     int K_gemm = C_out;
-    dim3 dimBlock(32, 32);
-    dim3 dimGrid((N + 31) / 32, (M + 31) / 32);
-    gemm_tiled_optimized<<<dimGrid, dimBlock>>>(weights, grad_output, col_buffer, M, N, K_gemm);
+    // Use 16x16 tiles for better performance
+    dim3 dimBlock(16, 16);
+    dim3 dimGrid((N + 15) / 16, (M + 15) / 16);
+    gemm_tiled<<<dimGrid, dimBlock>>>(weights, grad_output, col_buffer, M, N, K_gemm);
     cudaDeviceSynchronize();
     col2im_gpu_optimized(col_buffer, grad_input, C_in, H_in, W_in, K, pad, stride, H_out, W_out);
 }

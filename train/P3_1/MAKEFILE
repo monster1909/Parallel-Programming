@@ -20,7 +20,7 @@ FORWARD_KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
                   $(PHASE3_DIR)/src/kernels/upsample.cu
 
 TRAIN_UTILS = $(PHASE3_DIR)/src/kernels/mse_loss.cu \
-              $(TRAIN_DIR)/src/sgd_optimizer.cu
+              $(PHASE3_DIR)/src/kernels/sgd_optimizer.cu
 
 all: benchmark_full train_phase3_v1 infer_phase3_v1 extract_features
 

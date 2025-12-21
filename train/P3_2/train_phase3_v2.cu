@@ -208,15 +208,13 @@ int main() {
                 float loss = mse_loss_forward(d_output, d_input, C * H * W);
                 batch_loss += loss;
                 mse_loss_backward(d_output, d_input, d_grad_output, C * H * W);
-                dim3 grid_final_bw_w((3+15)/16, (3+15)/16, 256*C);
-                dim3 grid_final_bw_i((W+15)/16, (H+15)/16, 256);
-                conv2d_backward_weights<<<grid_final_bw_w, block>>>(
-                    d_grad_output, d_ups2_out, d_grad_w_final,
-                    H, W, 256, H, W, C, 3
+                conv2d_backward_weights_gemm_optimized(
+                    d_grad_output, d_ups2_out, d_grad_w_final, d_col_buffer,
+                    H, W, 256, H, W, C, 3, 1, 1
                 );
-                conv2d_backward_input<<<grid_final_bw_i, block>>>(
-                    d_grad_output, d_w_final, d_grad_ups2_out,
-                    H, W, 256, H, W, C, 3
+                conv2d_backward_input_gemm_optimized(
+                    d_grad_output, d_w_final, d_grad_ups2_out, d_col_buffer,
+                    H, W, 256, H, W, C, 3, 1, 1
                 );
                 cudaDeviceSynchronize();
                 dim3 grid_ups2_bw((W/2+15)/16, (H/2+15)/16, 256);
@@ -224,15 +222,13 @@ int main() {
                     d_grad_ups2_out, d_grad_dec2_out, H/2, W/2, 256
                 );
                 cudaDeviceSynchronize();
-                dim3 grid_dec2_bw_w((3+15)/16, (3+15)/16, 256*128);
-                dim3 grid_dec2_bw_i((W/2+15)/16, (H/2+15)/16, 128);
-                conv2d_backward_weights<<<grid_dec2_bw_w, block>>>(
-                    d_grad_dec2_out, d_ups1_out, d_grad_w_dec2,
-                    H/2, W/2, 128, H/2, W/2, 256, 3
+                conv2d_backward_weights_gemm_optimized(
+                    d_grad_dec2_out, d_ups1_out, d_grad_w_dec2, d_col_buffer,
+                    H/2, W/2, 128, H/2, W/2, 256, 3, 1, 1
                 );
-                conv2d_backward_input<<<grid_dec2_bw_i, block>>>(
-                    d_grad_dec2_out, d_w_dec2, d_grad_ups1_out,
-                    H/2, W/2, 128, H/2, W/2, 256, 3
+                conv2d_backward_input_gemm_optimized(
+                    d_grad_dec2_out, d_w_dec2, d_grad_ups1_out, d_col_buffer,
+                    H/2, W/2, 128, H/2, W/2, 256, 3, 1, 1
                 );
                 cudaDeviceSynchronize();
                 dim3 grid_ups1_bw((W/4+15)/16, (H/4+15)/16, 128);
@@ -240,15 +236,13 @@ int main() {
                     d_grad_ups1_out, d_grad_dec1_out, H/4, W/4, 128
                 );
                 cudaDeviceSynchronize();
-                dim3 grid_dec1_bw_w((3+15)/16, (3+15)/16, 128*128);
-                dim3 grid_dec1_bw_i((W/4+15)/16, (H/4+15)/16, 128);
-                conv2d_backward_weights<<<grid_dec1_bw_w, block>>>(
-                    d_grad_dec1_out, d_pool2_out, d_grad_w_dec1,
-                    H/4, W/4, 128, H/4, W/4, 128, 3
+                conv2d_backward_weights_gemm_optimized(
+                    d_grad_dec1_out, d_pool2_out, d_grad_w_dec1, d_col_buffer,
+                    H/4, W/4, 128, H/4, W/4, 128, 3, 1, 1
                 );
-                conv2d_backward_input<<<grid_dec1_bw_i, block>>>(
-                    d_grad_dec1_out, d_w_dec1, d_grad_pool2_out,
-                    H/4, W/4, 128, H/4, W/4, 128, 3
+                conv2d_backward_input_gemm_optimized(
+                    d_grad_dec1_out, d_w_dec1, d_grad_pool2_out, d_col_buffer,
+                    H/4, W/4, 128, H/4, W/4, 128, 3, 1, 1
                 );
                 cudaDeviceSynchronize();
                 cudaMemcpy(d_grad_conv2_out, d_grad_pool2_out, 
@@ -257,15 +251,13 @@ int main() {
                     d_grad_conv2_out, d_conv2_out, d_grad_conv2_out, 128*H/2*W/2
                 );
                 cudaDeviceSynchronize();
-                dim3 grid_conv2_bw_w((3+15)/16, (3+15)/16, 128*256);
-                dim3 grid_conv2_bw_i((W/2+15)/16, (H/2+15)/16, 256);
-                conv2d_backward_weights<<<grid_conv2_bw_w, block>>>(
-                    d_grad_conv2_out, d_pool1_out, d_grad_w_conv2,
-                    H/2, W/2, 256, H/2, W/2, 128, 3
+                conv2d_backward_weights_gemm_optimized(
+                    d_grad_conv2_out, d_pool1_out, d_grad_w_conv2, d_col_buffer,
+                    H/2, W/2, 256, H/2, W/2, 128, 3, 1, 1
                 );
-                conv2d_backward_input<<<grid_conv2_bw_i, block>>>(
-                    d_grad_conv2_out, d_w_conv2, d_grad_pool1_out,
-                    H/2, W/2, 256, H/2, W/2, 128, 3
+                conv2d_backward_input_gemm_optimized(
+                    d_grad_conv2_out, d_w_conv2, d_grad_pool1_out, d_col_buffer,
+                    H/2, W/2, 256, H/2, W/2, 128, 3, 1, 1
                 );
                 cudaDeviceSynchronize();
                 cudaMemcpy(d_grad_conv1_out, d_grad_pool1_out,
@@ -274,15 +266,13 @@ int main() {
                     d_grad_conv1_out, d_conv1_out, d_grad_conv1_out, 256*H*W
                 );
                 cudaDeviceSynchronize();
-                dim3 grid_conv1_bw_w((3+15)/16, (3+15)/16, 256*C);
-                dim3 grid_conv1_bw_i((W+15)/16, (H+15)/16, C);
-                conv2d_backward_weights<<<grid_conv1_bw_w, block>>>(
-                    d_grad_conv1_out, d_input, d_grad_w_conv1,
-                    H, W, C, H, W, 256, 3
+                conv2d_backward_weights_gemm_optimized(
+                    d_grad_conv1_out, d_input, d_grad_w_conv1, d_col_buffer,
+                    H, W, C, H, W, 256, 3, 1, 1
                 );
-                conv2d_backward_input<<<grid_conv1_bw_i, block>>>(
-                    d_grad_conv1_out, d_w_conv1, d_grad_input,
-                    H, W, C, H, W, 256, 3
+                conv2d_backward_input_gemm_optimized(
+                    d_grad_conv1_out, d_w_conv1, d_grad_input, d_col_buffer,
+                    H, W, C, H, W, 256, 3, 1, 1
                 );
                 cudaDeviceSynchronize();
             }

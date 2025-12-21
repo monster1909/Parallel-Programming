@@ -1,4 +1,4 @@
-#include "../include/mse_loss.h"
+#include "../../Include/utils/mse_loss.h"
 #include <cuda_runtime.h>
 #include <stdio.h>
 __global__ void mse_loss_forward_kernel(

@@ -5,7 +5,7 @@ PHASE3_V2_DIR = ../../phase3_gpu_optimized_v2
 TRAIN_DIR = ..
 INCLUDES = -I$(PHASE3_DIR)/Include -I$(PHASE3_DIR)/include
 
-KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
+KERNELS = $(PHASE3_V2_DIR)/src/kernels/im2col.cu \
           $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
           $(PHASE3_V2_DIR)/src/kernels/relu.cu \
           $(PHASE3_V2_DIR)/src/kernels/maxpool.cu \
@@ -14,14 +14,14 @@ KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
           $(PHASE3_V2_DIR)/src/kernels/relu_backward.cu \
           $(PHASE3_V2_DIR)/src/kernels/upsample_backward.cu
 
-FORWARD_KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
+FORWARD_KERNELS = $(PHASE3_V2_DIR)/src/kernels/im2col.cu \
                   $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
                   $(PHASE3_V2_DIR)/src/kernels/relu.cu \
                   $(PHASE3_V2_DIR)/src/kernels/maxpool.cu \
                   $(PHASE3_V2_DIR)/src/kernels/upsample.cu
 
 TRAIN_UTILS = $(PHASE3_V2_DIR)/src/kernels/mse_loss.cu \
-              $(TRAIN_DIR)/src/sgd_optimizer.cu
+              $(PHASE3_V2_DIR)/src/kernels/sgd_optimizer.cu
 
 all: benchmark_full train_phase3_v2 infer_phase3_v2 extract_features
 
