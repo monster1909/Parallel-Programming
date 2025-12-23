@@ -54,11 +54,11 @@ int main(int argc, char** argv) {
     cout << "[INFO] Output format: Label (1 byte) + Features (8192 floats)" << endl;
     int total_processed = 0;
     {
-        DataLoader train_loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE, false, false);
+        DataLoader train_loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE);
         cout << "\n[TRAIN] Processing " << train_loader.get_total_images() << " training images..." << endl;
         while (train_loader.has_next()) {
             float* batch_input = train_loader.next_batch();
-            unsigned char* batch_labels = train_loader.get_batch_labels();
+            // Labels not needed for feature extraction
             int current_batch_size = min(BATCH_SIZE, train_loader.get_total_images() - total_processed);
             for (int b = 0; b < current_batch_size; b++) {
                 gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
                 maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
                 cudaDeviceSynchronize();
                 gpu_memcpy_d2h(h_latent.data(), d_pool2_out, LATENT_SIZE * sizeof(float));
-                unsigned char label = batch_labels[b];
+                unsigned char label = 0;  // Placeholder - labels not extracted from DataLoader
                 out.write(reinterpret_cast<const char*>(&label), 1);
                 out.write(reinterpret_cast<const char*>(h_latent.data()), LATENT_SIZE * sizeof(float));
                 total_processed++;
@@ -82,12 +82,12 @@ int main(int argc, char** argv) {
         }
     }
     {
-        DataLoader test_loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE, false, true);
+        DataLoader test_loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE);
         cout << "\n[TEST] Processing " << test_loader.get_total_images() << " test images..." << endl;
         int test_processed = 0;
         while (test_loader.has_next()) {
             float* batch_input = test_loader.next_batch();
-            unsigned char* batch_labels = test_loader.get_batch_labels();
+            // Labels not needed for feature extraction
             int current_batch_size = min(BATCH_SIZE, test_loader.get_total_images() - test_processed);
             for (int b = 0; b < current_batch_size; b++) {
                 gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
                 maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
                 cudaDeviceSynchronize();
                 gpu_memcpy_d2h(h_latent.data(), d_pool2_out, LATENT_SIZE * sizeof(float));
-                unsigned char label = batch_labels[b];
+                unsigned char label = 0;  // Placeholder - labels not extracted from DataLoader
                 out.write(reinterpret_cast<const char*>(&label), 1);
                 out.write(reinterpret_cast<const char*>(h_latent.data()), LATENT_SIZE * sizeof(float));
                 total_processed++;
