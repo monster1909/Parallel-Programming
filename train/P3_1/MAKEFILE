@@ -13,7 +13,8 @@ KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
           $(PHASE3_DIR)/src/kernels/relu_backward.cu \
           $(PHASE3_DIR)/src/kernels/upsample_backward.cu
 
-FORWARD_KERNELS = $(PHASE3_DIR)/src/kernels/im2col.cu \
+FORWARD_KERNELS = $(PHASE3_DIR)/src/kernels/conv2d.cu \
+                  $(PHASE3_DIR)/src/kernels/im2col.cu \
                   $(PHASE3_DIR)/src/kernels/gemm.cu \
                   $(PHASE3_DIR)/src/kernels/relu.cu \
                   $(PHASE3_DIR)/src/kernels/maxpool.cu \

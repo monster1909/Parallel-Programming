@@ -313,6 +313,22 @@ int main() {
             weight_file.write(reinterpret_cast<const char*>(w_final.data()), w_final.size() * sizeof(float));
             weight_file.close();
             cout << "[INFO] Saved weights to " << filename << endl;
+            
+            // Save best model if this epoch achieved best loss
+            if (avg_loss == best_loss) {
+                ofstream best_file("weights/phase2_best.bin", ios::binary);
+                if (best_file.is_open()) {
+                    best_file.write(reinterpret_cast<const char*>(w_conv1.data()), w_conv1.size() * sizeof(float));
+                    best_file.write(reinterpret_cast<const char*>(w_conv2.data()), w_conv2.size() * sizeof(float));
+                    best_file.write(reinterpret_cast<const char*>(w_dec1.data()), w_dec1.size() * sizeof(float));
+                    best_file.write(reinterpret_cast<const char*>(w_dec2.data()), w_dec2.size() * sizeof(float));
+                    best_file.write(reinterpret_cast<const char*>(w_final.data()), w_final.size() * sizeof(float));
+                    best_file.close();
+                    cout << "[INFO] ⭐ Saved BEST model to weights/phase2_best.bin (Loss: " << fixed << setprecision(6) << best_loss << ")" << endl;
+                } else {
+                    cerr << "[WARNING] Could not save best model to weights/phase2_best.bin" << endl;
+                }
+            }
         } else {
             cerr << "[WARNING] Could not save weights to " << filename << endl;
         }
