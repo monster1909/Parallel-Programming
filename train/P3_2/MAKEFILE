@@ -32,7 +32,7 @@ train_phase3_v2: train_phase3_v2.cu $(KERNELS) $(TRAIN_UTILS)
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) train_phase3_v2.cu $(KERNELS) $(TRAIN_UTILS) -o train_phase3_v2
 
 infer_phase3_v2: infer_phase3_v2.cu $(FORWARD_KERNELS)
-	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) infer_phase3_v2.cu $(FORWARD_KERNELS) -o infer_phase3_v2
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) infer_phase3_v2.cu $(FORWARD_KERNELS) $(PHASE3_DIR)/src/kernels/mse_loss.cu -o infer_phase3_v2
 
 extract_features: extract_features.cu $(FORWARD_KERNELS)
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) extract_features.cu $(FORWARD_KERNELS) -o extract_features
