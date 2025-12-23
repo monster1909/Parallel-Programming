@@ -6,7 +6,7 @@
 #include "../../phase2_gpu_basic/Include/utils/gpu_memory.h"
 #include "../../phase2_gpu_basic/Include/utils/cuda_utils.h"
 #include "../include/data_loader.h"
-#include "../include/mse_loss.h"
+#include "../../phase3_gpu_optimized_v2/Include/utils/mse_loss.h"
 using namespace std;
 extern "C" __global__ void conv2d(const float *input, const float *kernel, float *output,
                                   int H, int W, int in_channels, int out_channels);
@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
     gpu_memcpy_h2d(d_w_dec1, w_dec1.data(), w_dec1.size() * sizeof(float));
     gpu_memcpy_h2d(d_w_dec2, w_dec2.data(), w_dec2.size() * sizeof(float));
     gpu_memcpy_h2d(d_w_final, w_final.data(), w_final.size() * sizeof(float));
-    DataLoader loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE, false, true);  
+    DataLoader loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE);  
     float *d_input = (float*)gpu_malloc(C * H * W * sizeof(float));
     float *d_conv1_out = (float*)gpu_malloc(256 * H * W * sizeof(float));
     float *d_pool1_out = (float*)gpu_malloc(256 * (H/2) * (W/2) * sizeof(float));

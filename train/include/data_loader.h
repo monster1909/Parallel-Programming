@@ -95,6 +95,10 @@ public:
     int get_batch_size() const {
         return batch_size;
     }
+    
+    int get_total_images() const {
+        return num_samples;
+    }
 };
 
 #endif // DATA_LOADER_H
