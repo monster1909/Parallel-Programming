@@ -74,8 +74,6 @@ public:
         }
         
         int start_idx = current_batch * batch_size;
-        int end_idx = std::min(start_idx + batch_size, num_samples);
-        int actual_batch_size = end_idx - start_idx;
         
         // Return pointer to the batch data
         float* batch_ptr = &data[start_idx * IMAGE_SIZE];
