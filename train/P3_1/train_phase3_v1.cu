@@ -18,7 +18,7 @@
 #include "../../phase3_gpu_optimized/Include/utils/gpu_memory.h"
 #include "../../phase3_gpu_optimized/Include/utils/cuda_utils.h"
 #include "../../phase3_gpu_optimized/Include/utils/gpu_timer.h"
-#include "../../phase3_gpu_optimized/include/kernels/conv2d_backward_gemm.h"
+#include "../../phase3_gpu_optimized/Include/kernels/conv2d_backward_gemm.h"
 #include "../../phase3_gpu_optimized/Include/utils/mse_loss.h"
 #include "../../phase3_gpu_optimized/Include/utils/sgd_optimizer.h"
 #include "../include/data_loader.h"
