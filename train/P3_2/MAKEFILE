@@ -3,7 +3,7 @@ NVCC_FLAGS = -std=c++11 -arch=sm_75 -O3
 PHASE3_DIR = ../../phase3_gpu_optimized
 PHASE3_V2_DIR = ../../phase3_gpu_optimized_v2
 TRAIN_DIR = ..
-INCLUDES = -I$(PHASE3_DIR)/Include -I$(PHASE3_DIR)/include
+INCLUDES = -I$(PHASE3_V2_DIR)/Include -I$(PHASE3_V2_DIR)/include
 
 KERNELS = $(PHASE3_V2_DIR)/src/kernels/im2col.cu \
           $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
