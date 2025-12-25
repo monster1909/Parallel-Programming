@@ -20,8 +20,8 @@ void forward_conv_layer(const float* d_input, const float* d_weights, float* d_o
     int M = C_out;
     int N = batch_size * H * W;
     int K = C_in * ksize * ksize; 
-    dim3 dimGrid((N + 15)/16, (M + 15)/16);
-    dim3 dimBlock(16, 16);
+    dim3 dimGrid((N + 31)/32, (M + 31)/32);
+    dim3 dimBlock(32, 32);
     gemm_tiled_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 void forward_conv_layer_relu(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
@@ -32,8 +32,8 @@ void forward_conv_layer_relu(const float* d_input, const float* d_weights, float
     int M = C_out;
     int N = batch_size * H * W;
     int K = C_in * ksize * ksize; 
-    dim3 dimGrid((N + 15)/16, (M + 15)/16);
-    dim3 dimBlock(16, 16);
+    dim3 dimGrid((N + 31)/32, (M + 31)/32);
+    dim3 dimBlock(32, 32);
     gemm_tiled_relu_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 Autoencoder::Autoencoder(int H_, int W_, int C_, int max_batch_)

@@ -8,6 +8,8 @@ using namespace std;
 using namespace chrono;
 extern "C" void im2col_gpu(const float* data_im, float* data_col, int batch_size, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
 extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C, int M, int N, int K);
+extern "C" __global__ void gemm_tiled_optimized(const float* A, const float* B, float* C, int M, int N, int K);
+extern "C" __global__ void gemm_tiled_relu_optimized(const float* A, const float* B, float* C, int M, int N, int K);
 extern "C" __global__ void relu(float *x, int size);
 extern "C" __global__ void maxpool(const float *input, float *output, int H, int W, int C);
 extern "C" __global__ void upsample(const float *input, float *output, int H, int W, int C);
@@ -16,15 +18,25 @@ void conv2d_backward_input_gemm_optimized(const float* grad_output, const float*
 extern "C" __global__ void relu_backward(const float* grad_output, const float* input_before_relu, float* grad_input, int N);
 extern "C" __global__ void upsample_backward(const float* grad_output, float* grad_input, int H_in, int W_in, int C);
 void* gpu_malloc(size_t size) { void* ptr; cudaMalloc(&ptr, size); return ptr; }
-void forward_conv_gemm(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
-                       int H, int W, int C_in, int C_out) {
+void forward_conv_layer_fused_relu(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
+                                     int H, int W, int C_in, int C_out) {
     int ksize = 3, pad = 1, stride = 1;
     int H_out = H, W_out = W;
     im2col_gpu(d_input, d_col_buffer, 1, C_in, H, W, ksize, pad, stride, H_out, W_out);
     int M = C_out, N = H_out * W_out, K = C_in * ksize * ksize;
-    dim3 dimGrid((N + 15)/16, (M + 15)/16);
-    dim3 dimBlock(16, 16);
-    gemm_tiled<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
+    dim3 dimGrid((N + 31)/32, (M + 31)/32);
+    dim3 dimBlock(32, 32);
+    gemm_tiled_relu_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
+}
+void forward_conv_layer_optimized(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
+                                   int H, int W, int C_in, int C_out) {
+    int ksize = 3, pad = 1, stride = 1;
+    int H_out = H, W_out = W;
+    im2col_gpu(d_input, d_col_buffer, 1, C_in, H, W, ksize, pad, stride, H_out, W_out);
+    int M = C_out, N = H_out * W_out, K = C_in * ksize * ksize;
+    dim3 dimGrid((N + 31)/32, (M + 31)/32);
+    dim3 dimBlock(32, 32);
+    gemm_tiled_optimized<<<dimGrid, dimBlock>>>(d_weights, d_col_buffer, d_output, M, N, K);
 }
 int main() {
     cout << "============================================" << endl;
@@ -69,37 +81,27 @@ int main() {
     cout << "--- FORWARD PASS (Optimized GEMM) ---" << endl << endl;
     auto total_fwd_start = high_resolution_clock::now();
     auto start = high_resolution_clock::now();
-    forward_conv_gemm(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
+    forward_conv_layer_fused_relu(d_input, d_w_conv1, d_conv1_out, d_col_buffer, H, W, C, 256);
     cudaDeviceSynchronize();
     auto end = high_resolution_clock::now();
-    fwd_times.push_back({"Conv1", duration<float, milli>(end - start).count()});
-    start = high_resolution_clock::now();
-    relu<<<(256*H*W+255)/256, 256>>>(d_conv1_out, 256*H*W);
-    cudaDeviceSynchronize();
-    end = high_resolution_clock::now();
-    fwd_times.push_back({"ReLU1", duration<float, milli>(end - start).count()});
+    fwd_times.push_back({"Conv1+ReLU", duration<float, milli>(end - start).count()});
     start = high_resolution_clock::now();
     maxpool<<<dim3((W/2+15)/16, (H/2+15)/16, 256), block>>>(d_conv1_out, d_pool1_out, H, W, 256);
     cudaDeviceSynchronize();
     end = high_resolution_clock::now();
     fwd_times.push_back({"MaxPool1", duration<float, milli>(end - start).count()});
     start = high_resolution_clock::now();
-    forward_conv_gemm(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
+    forward_conv_layer_fused_relu(d_pool1_out, d_w_conv2, d_conv2_out, d_col_buffer, H/2, W/2, 256, 128);
     cudaDeviceSynchronize();
     end = high_resolution_clock::now();
-    fwd_times.push_back({"Conv2", duration<float, milli>(end - start).count()});
-    start = high_resolution_clock::now();
-    relu<<<(128*H/2*W/2+255)/256, 256>>>(d_conv2_out, 128*H/2*W/2);
-    cudaDeviceSynchronize();
-    end = high_resolution_clock::now();
-    fwd_times.push_back({"ReLU2", duration<float, milli>(end - start).count()});
+    fwd_times.push_back({"Conv2+ReLU", duration<float, milli>(end - start).count()});
     start = high_resolution_clock::now();
     maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
     cudaDeviceSynchronize();
     end = high_resolution_clock::now();
     fwd_times.push_back({"MaxPool2", duration<float, milli>(end - start).count()});
     start = high_resolution_clock::now();
-    forward_conv_gemm(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
+    forward_conv_layer_optimized(d_pool2_out, d_w_dec1, d_dec1_out, d_col_buffer, H/4, W/4, 128, 128);
     cudaDeviceSynchronize();
     end = high_resolution_clock::now();
     fwd_times.push_back({"Dec1", duration<float, milli>(end - start).count()});
@@ -109,7 +111,7 @@ int main() {
     end = high_resolution_clock::now();
     fwd_times.push_back({"Upsample1", duration<float, milli>(end - start).count()});
     start = high_resolution_clock::now();
-    forward_conv_gemm(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
+    forward_conv_layer_optimized(d_ups1_out, d_w_dec2, d_dec2_out, d_col_buffer, H/2, W/2, 128, 256);
     cudaDeviceSynchronize();
     end = high_resolution_clock::now();
     fwd_times.push_back({"Dec2", duration<float, milli>(end - start).count()});
@@ -119,7 +121,7 @@ int main() {
     end = high_resolution_clock::now();
     fwd_times.push_back({"Upsample2", duration<float, milli>(end - start).count()});
     start = high_resolution_clock::now();
-    forward_conv_gemm(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
+    forward_conv_layer_optimized(d_ups2_out, d_w_final, d_output, d_col_buffer, H, W, 256, C);
     cudaDeviceSynchronize();
     end = high_resolution_clock::now();
     fwd_times.push_back({"Final Conv", duration<float, milli>(end - start).count()});
