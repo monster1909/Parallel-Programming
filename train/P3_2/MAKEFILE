@@ -14,13 +14,13 @@ KERNELS = $(PHASE3_V2_DIR)/src/kernels/im2col.cu \
           $(PHASE3_V2_DIR)/src/kernels/relu_backward.cu \
           $(PHASE3_V2_DIR)/src/kernels/upsample_backward.cu
 
-FORWARD_KERNELS = $(PHASE3_DIR)/src/kernels/conv2d.cu \
-                  $(PHASE3_DIR)/src/kernels/conv2d_optimized.cu \
-                  $(PHASE3_DIR)/src/kernels/im2col.cu \
-                  $(PHASE3_DIR)/src/kernels/gemm.cu \
-                  $(PHASE3_DIR)/src/kernels/relu.cu \
-                  $(PHASE3_DIR)/src/kernels/maxpool.cu \
-                  $(PHASE3_DIR)/src/kernels/upsample.cu
+FORWARD_KERNELS = $(PHASE3_V2_DIR)/src/kernels/conv2d.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/conv2d_optimized.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/im2col.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/gemm.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/relu.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/maxpool.cu \
+                  $(PHASE3_V2_DIR)/src/kernels/upsample.cu
 
 TRAIN_UTILS = $(PHASE3_V2_DIR)/src/kernels/mse_loss.cu \
               $(PHASE3_V2_DIR)/src/kernels/sgd_optimizer.cu
@@ -34,7 +34,7 @@ train_phase3_v2: train_phase3_v2.cu $(KERNELS) $(TRAIN_UTILS)
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) train_phase3_v2.cu $(KERNELS) $(TRAIN_UTILS) -o train_phase3_v2
 
 infer_phase3_v2: infer_phase3_v2.cu $(FORWARD_KERNELS)
-	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) infer_phase3_v2.cu $(FORWARD_KERNELS) $(PHASE3_DIR)/src/kernels/mse_loss.cu -o infer_phase3_v2
+	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) infer_phase3_v2.cu $(FORWARD_KERNELS) $(PHASE3_V2_DIR)/src/kernels/mse_loss.cu -o infer_phase3_v2
 
 extract_features: extract_features.cu $(FORWARD_KERNELS)
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) extract_features.cu $(FORWARD_KERNELS) -o extract_features
