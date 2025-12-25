@@ -6,7 +6,7 @@
 #include <string>
 using namespace std;
 using namespace chrono;
-void im2col_gpu(const float* data_im, float* data_col, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
+void im2col_gpu(const float* data_im, float* data_col, int batch_size, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
 extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C, int M, int N, int K);
 extern "C" __global__ void relu(float *x, int size);
 extern "C" __global__ void maxpool(const float *input, float *output, int H, int W, int C);
@@ -20,7 +20,7 @@ void forward_conv_gemm(const float* d_input, const float* d_weights, float* d_ou
                        int H, int W, int C_in, int C_out) {
     int ksize = 3, pad = 1, stride = 1;
     int H_out = H, W_out = W;
-    im2col_gpu(d_input, d_col_buffer, C_in, H, W, ksize, pad, stride, H_out, W_out);
+    im2col_gpu(d_input, d_col_buffer, 1, C_in, H, W, ksize, pad, stride, H_out, W_out);
     int M = C_out, N = H_out * W_out, K = C_in * ksize * ksize;
     dim3 dimGrid((N + 15)/16, (M + 15)/16);
     dim3 dimBlock(16, 16);
