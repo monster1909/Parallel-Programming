@@ -19,6 +19,7 @@ except ImportError:
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.multiclass import OneVsRestClassifier
 
 # --- CẤU HÌNH ---
 FEATURE_DIM = 8192
@@ -90,9 +91,11 @@ def main():
 
     # 4. Train với cuML
     print(f"[CUML] Training (Kernel: {args.kernel}, C: {args.C})...")
+    print("[INFO] Using OneVsRest strategy for multi-class (10 classes)...")
     
-    # --- SỬA LỖI Ở ĐÂY: Bỏ gpu_id, bỏ n_jobs ---
-    clf = SVC(kernel=args.kernel, C=args.C, gamma='auto', verbose=True)
+    # Wrap cuML SVC với OneVsRestClassifier để hỗ trợ multi-class
+    base_clf = SVC(kernel=args.kernel, C=args.C, gamma='auto', verbose=False)
+    clf = OneVsRestClassifier(base_clf, n_jobs=-1)
     
     start_train = time.time()
     clf.fit(X_train, y_train)
