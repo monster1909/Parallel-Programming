@@ -44,10 +44,10 @@ extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C,
                                       int M, int N, int K);
 extern "C" __global__ void gemm_tiled_optimized(const float* A, const float* B, float* C,
                                                 int M, int N, int K);
-void im2col_gpu(const float* data_im, float* data_col,
-                int batch_size, int channels, int height, int width,
-                int ksize, int pad, int stride,
-                int h_out, int w_out);
+extern "C" void im2col_gpu(const float* data_im, float* data_col,
+                           int batch_size, int channels, int height, int width,
+                           int ksize, int pad, int stride,
+                           int h_out, int w_out);
 void conv2d_backward_weights_gemm_optimized(
     const float* grad_output,  
     const float* input,        
