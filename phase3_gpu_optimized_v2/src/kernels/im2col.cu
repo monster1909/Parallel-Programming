@@ -28,10 +28,10 @@ extern "C" __global__ void im2col_kernel(const float* data_im, float* data_col,
     }
     data_col[index] = val;
 }
-void im2col_gpu(const float* data_im, float* data_col,
-                int batch_size, int channels, int height, int width,
-                int ksize, int pad, int stride, 
-                int h_out, int w_out) 
+extern "C" void im2col_gpu(const float* data_im, float* data_col,
+                           int batch_size, int channels, int height, int width,
+                           int ksize, int pad, int stride, 
+                           int h_out, int w_out) 
 {
     int num_kernels = channels * ksize * ksize * batch_size * h_out * w_out;
     int threads = 256;

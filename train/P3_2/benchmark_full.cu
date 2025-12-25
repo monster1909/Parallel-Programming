@@ -6,7 +6,7 @@
 #include <string>
 using namespace std;
 using namespace chrono;
-void im2col_gpu(const float* data_im, float* data_col, int batch_size, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
+extern "C" void im2col_gpu(const float* data_im, float* data_col, int batch_size, int channels, int height, int width, int ksize, int pad, int stride, int h_out, int w_out);
 extern "C" __global__ void gemm_tiled(const float* A, const float* B, float* C, int M, int N, int K);
 extern "C" __global__ void relu(float *x, int size);
 extern "C" __global__ void maxpool(const float *input, float *output, int H, int W, int C);
