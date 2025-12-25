@@ -10,7 +10,7 @@ extern "C" __global__ void gemm_tiled_relu_optimized(const float*, const float*,
 extern "C" __global__ void gemm_tiled_optimized(const float*, const float*, float*, int, int, int);
 extern "C" __global__ void maxpool(const float*, float*, int, int, int);
 extern "C" __global__ void upsample(const float*, float*, int, int, int);
-extern void im2col_gpu(const float*, float*, int, int, int, int, int, int, int, int, int);  
+extern "C" void im2col_gpu(const float*, float*, int, int, int, int, int, int, int, int, int);  
 extern "C" __global__ void relu(float* x, int size); 
 void forward_conv_layer(const float* d_input, const float* d_weights, float* d_output, float* d_col_buffer,
                         int batch_size, int H, int W, int C_in, int C_out) 
