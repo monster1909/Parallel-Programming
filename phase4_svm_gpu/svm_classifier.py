@@ -46,8 +46,7 @@ def load_data(filename):
     sample_size = 1 + (FEATURE_DIM * 4)
     num_samples = file_size // sample_size
     
-    # Dùng float32 để tương thích tốt nhất với cuML
-    labels = np.zeros(num_samples, dtype=np.float32) 
+    # LOAD FEATURES (ignore placeholder labels in file)
     features = np.zeros((num_samples, FEATURE_DIM), dtype=np.float32)
 
     with open(filename, 'rb') as f:
@@ -56,13 +55,49 @@ def load_data(filename):
     offset = 0
     start_time = time.time()
     for i in range(num_samples):
-        labels[i] = struct.unpack_from('B', buffer, offset)[0]
-        offset += 1
+        offset += 1  # Skip placeholder label
         features[i] = np.frombuffer(buffer, dtype=np.float32, count=FEATURE_DIM, offset=offset)
         offset += FEATURE_DIM * 4
     
     print(f" -> Đã đọc {num_samples} mẫu trong {time.time() - start_time:.2f}s")
+    
+    # LOAD REAL LABELS từ CIFAR-10 dataset
+    print("[I/O] Loading real labels from CIFAR-10 dataset...")
+    labels = load_cifar10_labels(num_samples)
+    
     return features, labels
+
+def load_cifar10_labels(num_samples):
+    """Load labels from CIFAR-10 binary files"""
+    labels = []
+    
+    # CIFAR-10 structure: 1 label byte + 3072 image bytes per sample
+    cifar_path = "../../Data/cifar-10-batches-bin/"
+    
+    # Train files (50k samples)
+    for i in range(1, 6):
+        batch_file = os.path.join(cifar_path, f"data_batch_{i}.bin")
+        if os.path.exists(batch_file):
+            with open(batch_file, 'rb') as f:
+                data = f.read()
+                for j in range(10000):  # 10k per batch
+                    offset = j * (1 + 3072)
+                    label = struct.unpack_from('B', data, offset)[0]
+                    labels.append(label)
+    
+    # Test file (10k samples)
+    test_file = os.path.join(cifar_path, "test_batch.bin")
+    if os.path.exists(test_file):
+        with open(test_file, 'rb') as f:
+            data = f.read()
+            for j in range(10000):
+                offset = j * (1 + 3072)
+                label = struct.unpack_from('B', data, offset)[0]
+                labels.append(label)
+    
+    labels = np.array(labels[:num_samples], dtype=np.float32)
+    print(f" -> Loaded {len(labels)} labels, unique classes: {np.unique(labels)}")
+    return labels
 
 def main():
     args = parse_args()
