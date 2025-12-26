@@ -110,7 +110,7 @@ void save_ppm(const float* data, const string& filename, int H, int W, int C) {
     cout << "[INFO] Saved image to " << filename << endl;
 }
 int main() {
-    cout << "===== Phase 3_2 Training (Im2Col + GEMM) =====" << endl;
+    cout << "===== Phase 3_2 Training =====" << endl;
     const int H = 32, W = 32, C = 3;
     const int BATCH_SIZE = 32;
     const int NUM_EPOCHS = 20;

@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
     }
     const char* weight_file = argv[1];
     const char* output_file = argv[2];
-    cout << "===== Phase 2 Feature Extraction =====" << endl;
+    cout << "===== Phase 3.2 Feature Extraction =====" << endl;
     cout << "[INFO] Loading weights from: " << weight_file << endl;
     const int H = 32, W = 32, C = 3;
     const int LATENT_H = 8, LATENT_W = 8, LATENT_C = 128;
@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
         cout << "\n[TRAIN] Processing " << train_loader.get_total_images() << " training images..." << endl;
         while (train_loader.has_next()) {
             float* batch_input = train_loader.next_batch();
-            // Labels not needed for feature extraction
+            int* batch_labels = train_loader.get_batch_labels();  // Get real labels
             int current_batch_size = min(BATCH_SIZE, train_loader.get_total_images() - total_processed);
             for (int b = 0; b < current_batch_size; b++) {
                 gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
                 maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
                 cudaDeviceSynchronize();
                 gpu_memcpy_d2h(h_latent.data(), d_pool2_out, LATENT_SIZE * sizeof(float));
-                unsigned char label = 0;  // Placeholder
+                unsigned char label = static_cast<unsigned char>(batch_labels[b]);  // Use real label
                 out.write(reinterpret_cast<const char*>(&label), 1);
                 out.write(reinterpret_cast<const char*>(h_latent.data()), LATENT_SIZE * sizeof(float));
                 total_processed++;
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
         int test_processed = 0;
         while (test_loader.has_next()) {
             float* batch_input = test_loader.next_batch();
-            // Labels not needed for feature extraction
+            int* batch_labels = test_loader.get_batch_labels();  // Get real labels
             int current_batch_size = min(BATCH_SIZE, test_loader.get_total_images() - test_processed);
             for (int b = 0; b < current_batch_size; b++) {
                 gpu_memcpy_h2d(d_input, batch_input + b * C * H * W, C * H * W * sizeof(float));
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
                 maxpool<<<dim3((W/4+15)/16, (H/4+15)/16, 128), block>>>(d_conv2_out, d_pool2_out, H/2, W/2, 128);
                 cudaDeviceSynchronize();
                 gpu_memcpy_d2h(h_latent.data(), d_pool2_out, LATENT_SIZE * sizeof(float));
-                unsigned char label = 0;  // Placeholder
+                unsigned char label = static_cast<unsigned char>(batch_labels[b]);  // Use real label
                 out.write(reinterpret_cast<const char*>(&label), 1);
                 out.write(reinterpret_cast<const char*>(h_latent.data()), LATENT_SIZE * sizeof(float));
                 total_processed++;
