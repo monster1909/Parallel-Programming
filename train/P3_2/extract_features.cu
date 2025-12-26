@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         }
     }
     {
-        DataLoader test_loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE);
+        DataLoader test_loader("../../Data/cifar-10-batches-bin/", BATCH_SIZE, true);  // is_test = true
         cout << "\n[TEST] Processing " << test_loader.get_total_images() << " test images..." << endl;
         int test_processed = 0;
         while (test_loader.has_next()) {
