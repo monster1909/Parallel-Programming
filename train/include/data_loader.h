@@ -135,7 +135,7 @@ public:
     int* get_batch_labels() {
         if (current_batch == 0) return nullptr;
         int start_idx = (current_batch - 1) * batch_size;
-        return \u0026labels[start_idx];
+        return &labels[start_idx];
     }
 };
 
