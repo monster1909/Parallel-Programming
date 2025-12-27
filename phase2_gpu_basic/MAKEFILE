@@ -1,7 +1,5 @@
-# Auto-detect NVCC compiler
 NVCC := $(shell which nvcc 2>/dev/null || echo /usr/local/cuda/bin/nvcc)
 
-# Check if nvcc exists
 ifeq ($(shell test -x $(NVCC) && echo yes),yes)
     $(info Found NVCC at: $(NVCC))
 else
@@ -43,3 +41,4 @@ clean:
 	rm -f $(TARGET_MAIN) $(TARGET_TEST)
 
 .PHONY: clean
+
