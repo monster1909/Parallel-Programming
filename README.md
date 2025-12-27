@@ -128,7 +128,6 @@ Expected speedup (60k images):
 - **Training & Inference**: See `train/README.md`
 - **CPU Baseline**: See `phase1_cpu_baseline/readme.md`
 - **SVM Classifier**: See `phase4_svm/readme.md`
-- **Colab Setup**: See `COLAB_GUIDE.md`
 
 ## Workflow
 
@@ -142,3 +141,4 @@ Expected speedup (60k images):
 - Training produces `.bin` weight files in `weights/` directory
 - Feature extraction outputs binary files with format: `[label:1byte][features:8192×float]`
 - SVM expects feature files from extraction step
+
