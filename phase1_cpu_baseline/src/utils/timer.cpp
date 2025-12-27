@@ -29,7 +29,7 @@ std::chrono::high_resolution_clock::time_point DetailedTimer::start_point() {
 
 void DetailedTimer::record_duration(const std::string& layer_name, const std::chrono::high_resolution_clock::time_point& start) {
     auto end = std::chrono::high_resolution_clock::now();
-    // Sử dụng += để nếu cùng tên layer được gọi nhiều lần, thời gian sẽ được cộng dồn (thường không xảy ra trong forward 1 lần)
+
     durations[layer_name] += std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start);
 }
 
@@ -80,4 +80,5 @@ void DetailedTimer::print_timing_report() {
     cout << "----------------------------------" << endl;
     cout << "TOTAL FORWARD TIME:" << right << setw(10) << total_ms << " ms" << endl;
     cout << "==================================" << endl;
+
 }
