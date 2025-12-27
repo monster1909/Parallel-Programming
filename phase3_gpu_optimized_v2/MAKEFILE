@@ -1,8 +1,5 @@
-# 1. Trình biên dịch & Cờ
-# Auto-detect NVCC compiler
 NVCC := $(shell which nvcc 2>/dev/null || echo /usr/local/cuda/bin/nvcc)
 
-# Check if nvcc exists
 ifeq ($(shell test -x $(NVCC) && echo yes),yes)
     $(info Found NVCC at: $(NVCC))
 else
@@ -12,7 +9,6 @@ endif
 INC = -I./Include 
 CXXFLAGS = -O3 -std=c++17
 
-# 2. Danh sách file nguồn
 SRCS_MAIN = src/main_gpu_optimized.cu \
        src/autoencoder.cu \
        src/kernels/im2col.cu \
@@ -41,12 +37,10 @@ SRCS_EXTRACT = src/main_feature_extraction.cu \
        src/kernels/upsample.cu \
        src/utils/gpu_memory.cu
 
-# 3. Tên file chạy
 TARGET_MAIN = run_phase3
 TARGET_TEST = test_gpu
 TARGET_EXTRACT = feature_extract
 
-# 4. Quy tắc biên dịch
 all: $(TARGET_MAIN) $(TARGET_TEST) $(TARGET_EXTRACT)
 
 $(TARGET_MAIN): $(SRCS_MAIN)
@@ -58,8 +52,8 @@ $(TARGET_TEST): $(SRCS_TEST)
 $(TARGET_EXTRACT): $(SRCS_EXTRACT)
 	$(NVCC) $(CXXFLAGS) $(INC) $(SRCS_EXTRACT) -o $(TARGET_EXTRACT)
 
-# 5. Dọn dẹp
 clean:
 	rm -f $(TARGET_MAIN) $(TARGET_TEST) $(TARGET_EXTRACT)
+
 
 .PHONY: clean all
