@@ -2,17 +2,16 @@
 #include <fstream>
 #include <vector>
 #include <string>
-#include <iomanip> // For formatting output
+#include <iomanip> 
 #include <algorithm>
 #include <chrono>
-#include <cmath>   // For pow
+#include <cmath>  
 #include "autoencoder.h"
 #include "utils/timer.h"
 #include "layers/mse.h"
 
 using namespace std;
 
-// --- Helper Functions (Save/Load) ---
 void save_ppm(const float* data, const string& filename) {
     ofstream f(filename);
     if (!f) return;
@@ -32,7 +31,6 @@ void save_ppm(const float* data, const string& filename) {
 }
 
 vector<float> load_cifar_batches(const vector<string>& files, int &N_out) {
-    // ... (Giữ nguyên code load_cifar_batches cũ)
     vector<float> data;
     for (auto &fpath : files) {
         ifstream fin(fpath, ios::binary);
@@ -62,7 +60,6 @@ void load_cifar_batches_with_labels(const vector<string>& files,
                                     vector<float>& data_out, 
                                     vector<unsigned char>& labels_out, 
                                     int &N_out) {
-    // ... (Giữ nguyên code load_cifar_batches_with_labels cũ)
     data_out.clear();
     labels_out.clear();
     for (auto &fpath : files) {
@@ -96,15 +93,11 @@ void print_sample_values(const float* data, int size, const std::string& header)
     std::cout << "\n" << std::endl;
 }
 
-// --- INFO Helper Functions ---
 
-// Tính số lượng tham số cho Conv Layer
 long long count_params(const Conv2D& layer) {
     return (long long)layer.out_c * layer.in_c * layer.k * layer.k + layer.out_c; // Weights + Bias
 }
 
-// Tính FLOPs (Floating Point Operations) ước lượng
-// Công thức chuẩn: 2 * Cin * K * K * Hout * Wout * Cout
 long long count_flops(const Conv2D& layer) {
     return 2LL * layer.in_c * layer.k * layer.k * layer.Hout * layer.Wout * layer.out_c;
 }
@@ -122,7 +115,6 @@ string shape_str(int c, int h, int w) {
     return to_string(c) + "x" + to_string(h) + "x" + to_string(w);
 }
 
-// --- MAIN ---
 int main(int argc, char** argv) {
     srand(1234);
 
@@ -138,9 +130,6 @@ int main(int argc, char** argv) {
     AutoEncoder ae;
     ae.init();
 
-    // -------------------------------------------------------------------------
-    // MODE: INFO
-    // -------------------------------------------------------------------------
     if (mode == "info") {
         cout << "\n==========================================================================================" << endl;
         cout << "                                  MODEL ARCHITECTURE SUMMARY                               " << endl;
@@ -199,10 +188,8 @@ int main(int argc, char** argv) {
         cout << "Latent Vector Size: " << F2 * (IMG_H/4) * (IMG_W/4) << " elements (" << F2 << "x" << IMG_H/4 << "x" << IMG_W/4 << ")" << endl;
         cout << "==========================================================================================\n" << endl;
 
-        // --- BENCHMARK SECTION ---
         cout << "Running Performance Benchmark (50 iterations)... Please wait." << endl;
         
-        // Tạo dữ liệu giả ngẫu nhiên
         int batch_size = 1;
         int img_size = IMG_C * IMG_H * IMG_W;
         float* dummy_in = (float*)xmalloc(sizeof(float) * img_size);
@@ -215,35 +202,21 @@ int main(int argc, char** argv) {
         DetailedTimer bench_timer;
         int iterations = 50;
 
-        // Warmup (chạy 5 lần không đo)
         for(int i=0; i<5; ++i) {
             ae.forward_batch(dummy_in, dummy_out, act, batch_size, nullptr);
         }
 
-        // Benchmark loop (đo tích lũy)
         for(int i=0; i<iterations; ++i) {
             ae.forward_batch(dummy_in, dummy_out, act, batch_size, &bench_timer);
         }
 
-        // Tính trung bình
         double total_ms = bench_timer.get_total_time_ms();
         double avg_ms = total_ms / iterations;
 
-        // In báo cáo tùy chỉnh
-        // Vì DetailedTimer chỉ lưu tổng, ta cần hack một chút để in trung bình
-        // Ta sẽ dùng lại hàm print_timing_report của Timer nhưng hiểu rằng số liệu đó là TỔNG 50 lần,
-        // Sau đó in thêm dòng tổng kết chia trung bình.
-        
-        // Để chuyên nghiệp hơn, ta truy cập map của DetailedTimer (cần sửa Timer class thành public map hoặc getter, 
-        // nhưng với code hiện tại, ta có thể dùng print_timing_report và chú thích rõ).
-        
+
         cout << "\n===== PERFORMANCE REPORT (Average over " << iterations << " runs) =====" << endl;
-        // In chi tiết (đang là tổng) - ta sẽ tự xử lý hiển thị ở đây nếu Timer::durations là private.
-        // Do Timer::durations là private, ta dùng print_timing_report() có sẵn, nhưng lưu ý người dùng đó là Total time.
-        // HOẶC TỐT HƠN: Ta sửa Timer một chút để lấy dữ liệu (như bạn đã làm ở các bước trước là đủ).
-        // Ở đây tôi dùng cách hiển thị Total Time từ Timer và tính Avg thủ công ở dòng cuối.
-        
-        bench_timer.print_timing_report(); // In tổng thời gian 50 lần
+
+        bench_timer.print_timing_report(); 
         
         cout << "\n----------------------------------" << endl;
         cout << "Benchmark Result Summary:" << endl;
@@ -258,9 +231,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // -------------------------------------------------------------------------
-    // MODE: TRAIN
-    // -------------------------------------------------------------------------
+
     if (mode == "train") {
         if (argc < 4) { cerr << "Args error\n"; return 1; }
         vector<string> files;
@@ -321,9 +292,7 @@ int main(int argc, char** argv) {
         free(output_batch);
         ae.free_all();
     } 
-    // -------------------------------------------------------------------------
-    // MODE: TEST
-    // -------------------------------------------------------------------------
+
     else if (mode == "test") {
         if (argc != 5) { cerr << "Args error\n"; return 1; }
         string weights_file = argv[2];
@@ -374,9 +343,7 @@ int main(int argc, char** argv) {
         save_ppm(out_img, ppm_out);
         cout << "\n===== DONE =====" << endl;
     }
-    // -------------------------------------------------------------------------
-    // MODE: EXTRACT
-    // -------------------------------------------------------------------------
+
     else if (mode == "extract") {
         if (argc < 5) {
             cerr << "Extract mode requires: extract weights.bin output.bin data_batch_1.bin ...\n";
@@ -436,4 +403,5 @@ int main(int argc, char** argv) {
         return 0;
     }
     return 0;
+
 }
