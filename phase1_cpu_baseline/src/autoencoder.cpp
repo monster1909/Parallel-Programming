@@ -3,14 +3,12 @@
 #include "layers/maxpool.h"
 #include "layers/upsample.h"
 #include "layers/mse.h"
-#include <chrono> // [FIX] Thêm thư viện này cho std::chrono
+#include <chrono> 
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
-// Activations Implementation
-// Sửa lại thứ tự trong src/autoencoder.cpp
 AutoEncoder::Activations::Activations() : 
     feat1(NULL), feat1_relu(NULL), pool1_argmax(NULL), pool1(NULL),
     feat2(NULL), feat2_relu(NULL), pool2_argmax(NULL), latent(NULL),
@@ -107,8 +105,7 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         maxpool2x2_forward_with_argmax(feat1ptr, F1, IMG_H, IMG_W, act.pool1 + n * pool1_size, act.pool1_argmax + n * pool1_size);
         if (do_timing) timer->record_duration("MaxPool1", t_start);
 
-        // --- Conv2 ---
-        // [FIX] Khôi phục feat2ptr
+
         float* feat2ptr = act.feat2 + n * feat2_size;
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
@@ -129,8 +126,7 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         maxpool2x2_forward_with_argmax(feat2ptr, F2, IMG_H/2, IMG_W/2, act.latent + n * latent_size, act.pool2_argmax + n * latent_size);
         if (do_timing) timer->record_duration("MaxPool2 (Latent)", t_start);
 
-        // --- Conv3 ---
-        // [FIX] Khôi phục feat3ptr
+
         float* feat3ptr = act.feat3 + n * feat3_size;
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
@@ -151,8 +147,6 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         upsample2x_forward(feat3ptr, F2, IMG_H/4, IMG_W/4, act.up1 + n * up1_size);
         if (do_timing) timer->record_duration("Upsample1", t_start);
 
-        // --- Conv4 ---
-        // [FIX] Khôi phục feat4ptr
         float* feat4ptr = act.feat4 + n * feat4_size;
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
@@ -173,8 +167,6 @@ void AutoEncoder::forward_batch(const float* input_batch, float* output_batch, A
         upsample2x_forward(feat4ptr, F1, IMG_H/2, IMG_W/2, act.up2 + n * up2_size);
         if (do_timing) timer->record_duration("Upsample2", t_start);
 
-        // --- Conv5 ---
-        // [FIX] Khôi phục outptr
         float* outptr = output_batch + n * out_img_size;
         t_start = do_timing ? timer->start_point() : std::chrono::high_resolution_clock::time_point();
         
@@ -329,4 +321,5 @@ void AutoEncoder::extract_feature_single(const float* input_img, float* out_late
     maxpool2x2_forward_with_argmax(feat2.data(), F2, IMG_H/2, IMG_W/2, out_latent, pool2_arg.data());
 
     free(col_buf);
+
 }
